@@ -1,0 +1,21 @@
+[Unit]
+Description=FM Broadcast RDS Multi Scan
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fmbscan
+Group=fmbscan
+WorkingDirectory=/var/lib/fmbcb-rds-multi-scan
+ExecStart=/usr/local/bin/fmbcb-rds-multi-scan \
+  --rx-sdr rtlsdr \
+  --bandwidth 2.4M \
+  --duration 10 \
+  --output /var/lib/fmbcb-rds-multi-scan/rds-scan.jsonl \
+  --cycles 0
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
