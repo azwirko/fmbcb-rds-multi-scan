@@ -8,6 +8,9 @@ This repo is designed for a shell-installer workflow rather than a `.deb`
 package. The installer:
 
 - installs Debian/Ubuntu build/runtime packages when available;
+- build or install SoapySDR when needed;
+- build or install all SoapySDR modules when needed;
+- build or install SoapySDRPlay module when needed;
 - builds and installs missing `rx_sdr`, `csdr`, and `redsea` tools as needed;
 - creates `/opt/fmbcb-rds-multi-scan/venv`;
 - installs the Python package into that venv;

@@ -7,6 +7,9 @@ This repository packages `fmbcb-rds-multi-scan`, a Python SDR/RDS FM broadcast s
 The installer is expected to:
 
 - install Debian/Ubuntu dependencies;
+- build or install SoapySDR when needed;
+- build or install all SoapySDR modules when needed;
+- build or install SoapySDRPlay module when needed;
 - build or install `rx_sdr`, `csdr`, and `redsea` when needed;
 - create a Python virtual environment;
 - install the Python scanner app;
