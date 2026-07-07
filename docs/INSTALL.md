@@ -19,6 +19,13 @@ not rebuilt unless `--force-build` is supplied. If the command is missing, the
 installer tries to build it from source, unless skipped with one of the
 `--skip-*` options.
 
+Native source checkouts live under `--build-root`. Existing git checkouts have
+their `origin` URL updated from the configured `FMB_*_REPO` value, then tags are
+fetched and pruned. If `FMB_*_REF` is set, the checkout is detached at that ref.
+If no ref is set, the checkout is detached at the remote default branch commit
+reported by `origin/HEAD`. If a build source path exists but is not a git
+checkout, the installer stops unless `--force-build` is used.
+
 ## APT packages
 
 The installer updates APT metadata once, then installs required and optional
@@ -48,6 +55,24 @@ be broad system directories such as `/`, `/usr`, `/usr/local`, `/opt`, or
 `/var`. The same guard applies to `FMB_PREFIX`, `FMB_BIN_DIR`, and
 `FMB_BUILD_ROOT`. This protects installer writes and recursive cleanup steps
 from accidentally targeting system roots.
+
+## Installed source snapshot
+
+The installer does not copy the entire local working tree into `/opt`. It copies
+only the files needed to install and support the package: `LICENSE`, `Makefile`,
+`README.md`, `pyproject.toml`, `requirements.txt`, `config/`, `docs/`,
+`examples/`, and `src/`. Git metadata, editor files, runtime logs, local JSONL
+outputs, virtual environments, and other untracked local files are intentionally
+left out of the installed source snapshot.
+
+## Install metadata
+
+Each install writes `${FMB_PREFIX:-/opt/fmbcb-rds-multi-scan}/install-info.env`.
+This shell-readable metadata file records the installed app version, install
+time, install paths, source repository branch/commit/dirty status, configured
+native dependency repos/refs, native dependency checkout commits when present,
+and resolved `rx_sdr`, `csdr`, and `redsea` command paths. Include this file
+when reporting installer or runtime environment issues.
 
 ## SDRplay
 

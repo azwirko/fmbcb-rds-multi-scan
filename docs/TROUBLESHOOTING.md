@@ -84,3 +84,15 @@ manual source installs.
 This usually points to USB device permissions. Confirm group membership and udev
 rules for your SDR hardware. For RTL-SDR, unplug/replug the dongle after udev
 rule changes.
+
+## Report install metadata
+
+When an install or runtime environment problem is not obvious, include:
+
+```bash
+fmbcb-rds-env-check
+cat /opt/fmbcb-rds-multi-scan/install-info.env
+```
+
+If you installed with a custom `FMB_PREFIX` or `--prefix`, read
+`install-info.env` from that prefix instead.

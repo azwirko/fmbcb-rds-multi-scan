@@ -119,10 +119,45 @@ fi
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${PREFIX}/venv"
 APP_SRC_DIR="${PREFIX}/src"
+INSTALL_INFO_FILE="${PREFIX}/install-info.env"
 
 log() { printf '\n==> %s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*" >&2; }
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+git_output() {
+  local repo_dir="$1"
+  shift
+  git -C "$repo_dir" "$@" 2>/dev/null || true
+}
+
+git_commit_for_dir() {
+  local repo_dir="$1"
+  [[ -d "$repo_dir/.git" ]] || return 0
+  git_output "$repo_dir" rev-parse HEAD
+}
+
+git_branch_for_dir() {
+  local repo_dir="$1"
+  [[ -d "$repo_dir/.git" ]] || return 0
+  git_output "$repo_dir" branch --show-current
+}
+
+git_dirty_for_dir() {
+  local repo_dir="$1"
+  [[ -d "$repo_dir/.git" ]] || { printf 'unknown\n'; return 0; }
+  if [[ -n "$(git_output "$repo_dir" status --porcelain)" ]]; then
+    printf 'yes\n'
+  else
+    printf 'no\n'
+  fi
+}
+
+write_env_kv() {
+  local key="$1"
+  local value="${2-}"
+  printf '%s=%q\n' "$key" "$value" >> "$INSTALL_INFO_FILE"
+}
 
 apt_package_available() {
   apt-cache show "$1" >/dev/null 2>&1
@@ -168,15 +203,33 @@ clone_or_update() {
   local dest="$3"
 
   if [[ -d "$dest/.git" ]]; then
+    git -C "$dest" remote set-url origin "$repo"
     git -C "$dest" fetch --tags --prune
+  elif [[ -e "$dest" ]]; then
+    if [[ "$FORCE_BUILD" == "1" ]]; then
+      rm -rf "$dest"
+      git clone "$repo" "$dest"
+    else
+      die "Build source path exists but is not a git checkout: $dest. Remove it or rerun with --force-build."
+    fi
   else
-    rm -rf "$dest"
     git clone "$repo" "$dest"
   fi
 
   if [[ -n "$ref" ]]; then
-    git -C "$dest" checkout "$ref"
+    git -C "$dest" checkout --detach "$ref"
+  else
+    git -C "$dest" remote set-head origin --auto >/dev/null 2>&1 || true
+    local remote_head
+    remote_head="$(git -C "$dest" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+    if [[ -n "$remote_head" ]]; then
+      git -C "$dest" checkout --detach "$remote_head"
+    else
+      warn "Could not determine default branch for $repo; leaving current checkout in place."
+    fi
   fi
+
+  log "Using $(basename "$dest") commit $(git -C "$dest" rev-parse --short HEAD)"
 }
 
 install_apt_deps() {
@@ -266,17 +319,63 @@ install_python_app() {
   rm -rf "$APP_SRC_DIR"
   mkdir -p "$APP_SRC_DIR"
 
-  # Copy the repository snapshot used for installation. Exclude git/build cache.
+  # Copy only files needed for install, docs, and examples. Keep local runtime
+  # data, editor files, secrets, and VCS metadata out of /opt.
   tar -C "$REPO_ROOT" \
-    --exclude='.git' \
-    --exclude='*.tar.gz' \
-    --exclude='build' \
-    --exclude='dist' \
-    -cf - . | tar -C "$APP_SRC_DIR" -xf -
+    -cf - \
+    LICENSE \
+    Makefile \
+    README.md \
+    pyproject.toml \
+    requirements.txt \
+    config \
+    docs \
+    examples \
+    src | tar -C "$APP_SRC_DIR" -xf -
 
   python3 -m venv "$VENV_DIR"
   "$VENV_DIR/bin/python" -m pip install --upgrade pip setuptools wheel
   "$VENV_DIR/bin/python" -m pip install "$APP_SRC_DIR"
+  rm -rf "$APP_SRC_DIR/build" "$APP_SRC_DIR"/src/*.egg-info
+}
+
+write_install_info() {
+  log "Writing install metadata to ${INSTALL_INFO_FILE}"
+  : > "$INSTALL_INFO_FILE"
+
+  local app_version
+  app_version="$("$VENV_DIR/bin/python" - <<'PYAPPVERSION'
+from importlib.metadata import version
+print(version("fmbcb-rds-multi-scan"))
+PYAPPVERSION
+)"
+
+  write_env_kv "APP_NAME" "$APP_NAME"
+  write_env_kv "APP_VERSION" "$app_version"
+  write_env_kv "INSTALLED_AT_UTC" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  write_env_kv "PREFIX" "$PREFIX"
+  write_env_kv "BIN_DIR" "$BIN_DIR"
+  write_env_kv "BUILD_ROOT" "$BUILD_ROOT"
+  write_env_kv "APP_SRC_DIR" "$APP_SRC_DIR"
+  write_env_kv "VENV_DIR" "$VENV_DIR"
+  write_env_kv "REPO_ROOT" "$REPO_ROOT"
+  write_env_kv "REPO_GIT_BRANCH" "$(git_branch_for_dir "$REPO_ROOT")"
+  write_env_kv "REPO_GIT_COMMIT" "$(git_commit_for_dir "$REPO_ROOT")"
+  write_env_kv "REPO_GIT_DIRTY" "$(git_dirty_for_dir "$REPO_ROOT")"
+  write_env_kv "RX_TOOLS_REPO" "$RX_TOOLS_REPO"
+  write_env_kv "RX_TOOLS_REF" "$RX_TOOLS_REF"
+  write_env_kv "RX_TOOLS_COMMIT" "$(git_commit_for_dir "${BUILD_ROOT}/rx_tools")"
+  write_env_kv "CSDR_REPO" "$CSDR_REPO"
+  write_env_kv "CSDR_REF" "$CSDR_REF"
+  write_env_kv "CSDR_COMMIT" "$(git_commit_for_dir "${BUILD_ROOT}/csdr")"
+  write_env_kv "REDSEA_REPO" "$REDSEA_REPO"
+  write_env_kv "REDSEA_REF" "$REDSEA_REF"
+  write_env_kv "REDSEA_COMMIT" "$(git_commit_for_dir "${BUILD_ROOT}/redsea")"
+  write_env_kv "RX_SDR_COMMAND" "$(command -v rx_sdr || true)"
+  write_env_kv "CSDR_COMMAND" "$(command -v csdr || true)"
+  write_env_kv "REDSEA_COMMAND" "$(command -v redsea || true)"
+
+  chmod 0644 "$INSTALL_INFO_FILE"
 }
 
 install_wrappers() {
@@ -300,6 +399,7 @@ main() {
   build_redsea
   install_rtl_blacklist
   install_python_app
+  write_install_info
   install_wrappers
 
   log "Running environment checker"

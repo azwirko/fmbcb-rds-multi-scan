@@ -13,7 +13,8 @@ package. The installer:
 - documents the manual SDRplay API and SoapySDRPlay3 source install path;
 - builds and installs missing `rx_sdr`, `csdr`, and `redsea` tools as needed;
 - creates `/opt/fmbcb-rds-multi-scan/venv`;
-- installs the Python package into that venv;
+- installs the Python package into that venv from a curated source snapshot;
+- writes `/opt/fmbcb-rds-multi-scan/install-info.env` with install/source metadata;
 - creates `/usr/local/bin/fmbcb-rds-multi-scan` and `/usr/local/bin/fmbcb-rds-env-check` wrappers;
 - runs an environment checker at the end.
 
@@ -112,6 +113,8 @@ sudo ./install.sh --install-rtl-blacklist
 - `fmbcb-rds-env-check` verifies command availability, Python dependencies,
   obvious SDR USB visibility, conflicting RTL kernel modules, and SoapySDR
   device discovery.
+- `install-info.env` records the installed app version, source commit, install
+  paths, native dependency repos/refs, and native checkout commits when present.
 - The `rx_sdr` source repo is configurable through `FMB_RX_TOOLS_REPO` because
   deployments may use different forks/builds of the SoapySDR `rx_sdr` tool.
 
