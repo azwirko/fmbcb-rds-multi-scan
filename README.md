@@ -8,9 +8,9 @@ This repo is designed for a shell-installer workflow rather than a `.deb`
 package. The installer:
 
 - installs Debian/Ubuntu build/runtime packages when available;
-- build or install SoapySDR when needed;
-- build or install all SoapySDR modules when needed;
-- build or install SoapySDRPlay module when needed;
+- installs distro SoapySDR packages when available;
+- installs distro RTL-SDR SoapySDR support when available;
+- documents the manual SDRplay API and SoapySDRPlay3 source install path;
 - builds and installs missing `rx_sdr`, `csdr`, and `redsea` tools as needed;
 - creates `/opt/fmbcb-rds-multi-scan/venv`;
 - installs the Python package into that venv;
@@ -44,8 +44,11 @@ fmbcb-rds-multi-scan \
   --show-command
 ```
 
-For SDRplay, install the current SDRplay API and SoapySDRPlay support first,
-then use:
+For SDRplay, first install the current SDRplay API from
+<https://www.sdrplay.com/downloads/>, enable the SDRplay API service, build and
+install SoapySDRPlay3 from <https://github.com/pothosware/SoapySDRPlay3>, and
+verify `SoapySDRUtil --probe="driver=sdrplay"` works. See
+[docs/INSTALL.md](docs/INSTALL.md) for the full sequence. Then use:
 
 ```bash
 fmbcb-rds-multi-scan \
@@ -66,6 +69,7 @@ Common examples:
 
 ```bash
 # install somewhere other than /opt/fmbcb-rds-multi-scan
+# custom install paths must be absolute and must not be broad system roots
 sudo ./install.sh --prefix /opt/fmbscan
 
 # do not build native tools; useful when you already installed them manually

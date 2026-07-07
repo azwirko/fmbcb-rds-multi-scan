@@ -17,7 +17,7 @@ SKIP_CSDR_BUILD="${FMB_SKIP_CSDR_BUILD:-0}"
 SKIP_REDSEA_BUILD="${FMB_SKIP_REDSEA_BUILD:-0}"
 INSTALL_RTL_BLACKLIST="${FMB_INSTALL_RTL_BLACKLIST:-0}"
 
-RX_TOOLS_REPO="${FMB_RX_TOOLS_REPO:-https://github.com/xmikos/rx_tools.git}"
+RX_TOOLS_REPO="${FMB_RX_TOOLS_REPO:-https://github.com/rxseger/rx_tools}"
 RX_TOOLS_REF="${FMB_RX_TOOLS_REF:-}"
 CSDR_REPO="${FMB_CSDR_REPO:-https://github.com/ha7ilm/csdr.git}"
 CSDR_REF="${FMB_CSDR_REF:-}"
@@ -29,7 +29,9 @@ usage() {
 Usage: sudo ./install.sh [options]
 
 Install ${APP_NAME}, create a Python virtual environment, install wrappers, and
-build missing native SDR tools when needed.
+build missing native SDR tools when needed. Distro SoapySDR packages are
+installed through APT when available; SDRplay API and SoapySDRPlay3 remain a
+manual install path documented in docs/INSTALL.md.
 
 Options:
   --prefix PATH              Install app under PATH [${DEFAULT_PREFIX}]
@@ -50,16 +52,51 @@ Environment overrides:
   FMB_REDSEA_REPO, FMB_REDSEA_REF
 
 Notes:
-  SDRplay users still need the SDRplay API/SoapySDR module installed separately
-  according to SDRplay's current Linux instructions.
+  SDRplay users still need the SDRplay API and SoapySDRPlay3 installed
+  separately. See docs/INSTALL.md.
 EOF
+}
+
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+require_option_value() {
+  local option="$1"
+  local value="${2-}"
+  if [[ -z "$value" || "$value" == -* ]]; then
+    echo "Missing value for ${option}" >&2
+    usage >&2
+    exit 2
+  fi
+}
+
+validate_install_path() {
+  local name="$1"
+  local value="$2"
+
+  if [[ -z "$value" ]]; then
+    die "${name} must not be empty."
+  fi
+  if [[ "$value" != /* ]]; then
+    die "${name} must be an absolute path: ${value}"
+  fi
+  case "$value" in
+    /|/bin|/boot|/dev|/etc|/home|/lib|/lib64|/opt|/proc|/root|/run|/sbin|/sys|/tmp|/usr|/usr/local|/var)
+      die "${name} is too broad for installer writes/removal: ${value}"
+      ;;
+  esac
+}
+
+validate_install_paths() {
+  validate_install_path "--prefix/FMB_PREFIX" "$PREFIX"
+  validate_install_path "--bin-dir/FMB_BIN_DIR" "$BIN_DIR"
+  validate_install_path "--build-root/FMB_BUILD_ROOT" "$BUILD_ROOT"
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --prefix) PREFIX="$2"; shift 2 ;;
-    --bin-dir) BIN_DIR="$2"; shift 2 ;;
-    --build-root) BUILD_ROOT="$2"; shift 2 ;;
+    --prefix) require_option_value "$1" "${2-}"; PREFIX="$2"; shift 2 ;;
+    --bin-dir) require_option_value "$1" "${2-}"; BIN_DIR="$2"; shift 2 ;;
+    --build-root) require_option_value "$1" "${2-}"; BUILD_ROOT="$2"; shift 2 ;;
     --force-build) FORCE_BUILD=1; shift ;;
     --skip-apt) SKIP_APT=1; shift ;;
     --skip-native-build) SKIP_NATIVE_BUILD=1; shift ;;
@@ -71,6 +108,8 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+validate_install_paths
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Please run as root, for example: sudo ./install.sh" >&2
@@ -85,17 +124,37 @@ log() { printf '\n==> %s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*" >&2; }
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 
-apt_install_available() {
+apt_package_available() {
+  apt-cache show "$1" >/dev/null 2>&1
+}
+
+apt_install_required() {
+  local requested=("$@")
+  local missing=()
+  local pkg
+  for pkg in "${requested[@]}"; do
+    if ! apt_package_available "$pkg"; then
+      missing+=("$pkg")
+    fi
+  done
+  if ((${#missing[@]})); then
+    printf 'ERROR: Required APT package(s) are not available on this release:\n' >&2
+    printf '  %s\n' "${missing[@]}" >&2
+    printf 'Review docs/INSTALL.md or rerun with --skip-apt only if these are installed another way.\n' >&2
+    exit 1
+  fi
+  apt-get install -y --no-install-recommends "${requested[@]}"
+}
+
+apt_install_optional() {
   local requested=("$@")
   local installable=()
   local pkg
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update
   for pkg in "${requested[@]}"; do
-    if apt-cache show "$pkg" >/dev/null 2>&1; then
+    if apt_package_available "$pkg"; then
       installable+=("$pkg")
     else
-      warn "APT package not available on this release: $pkg"
+      warn "Optional APT package not available on this release: $pkg"
     fi
   done
   if ((${#installable[@]})); then
@@ -123,14 +182,21 @@ clone_or_update() {
 install_apt_deps() {
   [[ "$SKIP_APT" == "1" ]] && { warn "Skipping APT dependency install"; return; }
 
-  log "Installing Debian/Ubuntu packages"
-  apt_install_available \
+  export DEBIAN_FRONTEND=noninteractive
+  log "Updating APT package metadata"
+  apt-get update
+
+  log "Installing required Debian/Ubuntu packages"
+  apt_install_required \
     ca-certificates curl git build-essential make cmake pkg-config \
     python3 python3-venv python3-pip python3-dev \
     libusb-1.0-0-dev libfftw3-dev libsndfile1-dev libliquid-dev \
     meson ninja-build nlohmann-json3-dev \
-    soapysdr-tools libsoapysdr-dev soapysdr-module-rtlsdr \
-    rtl-sdr usbutils sox
+    soapysdr-tools libsoapysdr-dev usbutils
+
+  log "Installing optional Debian/Ubuntu packages when available"
+  apt_install_optional \
+    soapysdr-module-rtlsdr rtl-sdr sox
 }
 
 build_rx_sdr() {
@@ -182,7 +248,7 @@ build_redsea() {
 }
 
 install_rtl_blacklist() {
-  [[ "$INSTALL_RTL_BLACKLIST" == "1" ]] || return
+  [[ "$INSTALL_RTL_BLACKLIST" == "1" ]] || return 0
   log "Installing RTL-SDR DVB module blacklist"
   cat > /etc/modprobe.d/blacklist-rtl-sdr.conf <<'EOF'
 # Installed by fmbcb-rds-multi-scan installer.
