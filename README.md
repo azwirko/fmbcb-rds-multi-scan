@@ -21,7 +21,7 @@ package. The installer:
 ## Quick install
 
 ```bash
-git clone https://github.com/YOURUSER/fmbcb-rds-multi-scan.git
+git clone https://github.com/azwirko/fmbcb-rds-multi-scan.git
 cd fmbcb-rds-multi-scan
 sudo ./install.sh
 ```
@@ -81,6 +81,17 @@ sudo ./install.sh --force-build
 
 # optionally blacklist Linux DVB modules that can claim RTL-SDR dongles
 sudo ./install.sh --install-rtl-blacklist
+
+# validate paths and print the install plan without changing the system
+./install.sh --dry-run
+```
+
+## Source package
+
+Build a versioned source tarball and checksum under `dist/`:
+
+```bash
+make package
 ```
 
 ## Repository layout
@@ -117,6 +128,13 @@ sudo ./install.sh --install-rtl-blacklist
   paths, native dependency repos/refs, and native checkout commits when present.
 - The `rx_sdr` source repo is configurable through `FMB_RX_TOOLS_REPO` because
   deployments may use different forks/builds of the SoapySDR `rx_sdr` tool.
+
+## systemd
+
+A service template is provided at
+`examples/systemd/fmbcb-rds-multi-scan.service.example`. See
+[docs/INSTALL.md](docs/INSTALL.md) for creating the service user, runtime
+directory, hardware access groups, and enabling the unit.
 
 ## Uninstall
 

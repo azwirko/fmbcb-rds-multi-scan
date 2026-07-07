@@ -3,8 +3,27 @@
 ## Supported target
 
 The shell installer is intended for Debian/Ubuntu hosts with `apt`, Python 3,
-and normal build tools. It installs into `/opt/fmbcb-rds-multi-scan` by default
-and places small command wrappers in `/usr/local/bin`.
+and normal build tools. The primary target is Ubuntu 24.04 LTS. It installs into
+`/opt/fmbcb-rds-multi-scan` by default and places small command wrappers in
+`/usr/local/bin`.
+
+A normal Ubuntu 24.04 install needs network access for APT, Python package
+downloads, and native source checkouts unless all required packages and native
+tools are already present and the relevant `--skip-*` options are used. Expect
+the first full install to take several minutes because `rx_sdr`, `csdr`, and
+`redsea` may be built from source. Subsequent installs are usually faster
+because existing commands and cached source checkouts are reused unless
+`--force-build` is supplied.
+
+Quick start from a fresh clone:
+
+```bash
+git clone https://github.com/azwirko/fmbcb-rds-multi-scan.git
+cd fmbcb-rds-multi-scan
+sudo ./install.sh
+fmbcb-rds-env-check
+fmbcb-rds-multi-scan --help
+```
 
 ## Native tools
 
@@ -56,6 +75,20 @@ be broad system directories such as `/`, `/usr`, `/usr/local`, `/opt`, or
 `FMB_BUILD_ROOT`. This protects installer writes and recursive cleanup steps
 from accidentally targeting system roots.
 
+## Installer preflight
+
+Use `--dry-run` or `--check` to validate installer options and print the install
+plan without requiring root and without changing the system:
+
+```bash
+./install.sh --dry-run
+./install.sh --check --prefix /opt/fmbscan
+```
+
+The preflight output includes install paths, APT package groups, native tool
+build decisions, configured source repositories/refs, wrapper paths, and whether
+APT or native builds are skipped.
+
 ## Installed source snapshot
 
 The installer does not copy the entire local working tree into `/opt`. It copies
@@ -73,6 +106,19 @@ time, install paths, source repository branch/commit/dirty status, configured
 native dependency repos/refs, native dependency checkout commits when present,
 and resolved `rx_sdr`, `csdr`, and `redsea` command paths. Include this file
 when reporting installer or runtime environment issues.
+
+## Source package
+
+Run `make package` to create a GitHub-friendly source archive and checksum:
+
+```bash
+make package
+ls -l dist/
+```
+
+The package target writes `dist/fmbcb-rds-multi-scan-<version>.tar.gz` and a
+matching `.sha256` file. The archive contains the installer scripts, Python
+package, docs, examples, config samples, CI workflow, and project metadata.
 
 ## SDRplay
 
@@ -125,6 +171,65 @@ systemctl is-active sdrplay_apiService
 SoapySDRUtil --find=sdrplay
 SoapySDRUtil --probe="driver=sdrplay"
 fmbcb-rds-env-check
+```
+
+
+## systemd service
+
+A template unit is provided at
+`examples/systemd/fmbcb-rds-multi-scan.service.example`. The template runs as a
+dedicated `fmbscan` user and writes output under
+`/var/lib/fmbcb-rds-multi-scan`. Create those before enabling the service.
+
+1. Create the service user and runtime directory:
+
+```bash
+sudo useradd --system --home /var/lib/fmbcb-rds-multi-scan --create-home --shell /usr/sbin/nologin fmbscan
+sudo install -d -o fmbscan -g fmbscan -m 0755 /var/lib/fmbcb-rds-multi-scan
+```
+
+2. Give the service user access to SDR USB devices. Group names vary by local
+udev rules and hardware packages. On Ubuntu/Debian systems, `plugdev` is a
+common choice for RTL-SDR-style rules. Add `dialout` only if your local SDR
+rules use it.
+
+```bash
+sudo usermod -aG plugdev fmbscan
+# Optional, only if your local rules require it:
+# sudo usermod -aG dialout fmbscan
+```
+
+For RTL-SDR devices, install udev rules from the distro `rtl-sdr` package or
+from your hardware vendor. If Linux DVB modules claim the dongle, rerun the
+installer with `--install-rtl-blacklist`, then reboot or unplug/replug the
+device. For SDRplay, install and start the SDRplay API service before running
+this scanner service.
+
+3. Install and edit the unit file:
+
+```bash
+sudo cp examples/systemd/fmbcb-rds-multi-scan.service.example /etc/systemd/system/fmbcb-rds-multi-scan.service
+sudo systemctl edit --full fmbcb-rds-multi-scan.service
+```
+
+Adjust `ExecStart` for your hardware profile, bandwidth, duration, output path,
+and optional RabbitEars tuner key. Do not place secrets or private tuner keys in
+the repository copy of the example unit.
+
+4. Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now fmbcb-rds-multi-scan.service
+systemctl status fmbcb-rds-multi-scan.service --no-pager
+journalctl -u fmbcb-rds-multi-scan.service -f
+```
+
+5. Confirm the output file is owned by the service user and growing:
+
+```bash
+sudo ls -l /var/lib/fmbcb-rds-multi-scan/
+sudo tail -f /var/lib/fmbcb-rds-multi-scan/rds-scan.jsonl
 ```
 
 ## Custom source pins

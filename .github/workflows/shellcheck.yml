@@ -1,15 +1,30 @@
-name: shellcheck
+name: package checks
 
 on:
   push:
   pull_request:
 
 jobs:
-  shellcheck:
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - name: Check shell scripts
+      - name: Install check tools
+        run: sudo apt-get update && sudo apt-get install -y shellcheck shfmt python3-venv
+      - name: Shell syntax
+        run: bash -n install.sh uninstall.sh examples/quickstart.sh
+      - name: ShellCheck
         run: shellcheck install.sh uninstall.sh examples/quickstart.sh
+      - name: shfmt advisory diff
+        run: shfmt -d install.sh uninstall.sh examples/quickstart.sh || true
+      - name: Python compile
+        run: python3 -m py_compile src/fmbcb_rds_multi_scan/*.py
+      - name: Package install smoke test
+        run: |
+          python3 -m venv .ci-venv
+          .ci-venv/bin/python -m pip install --upgrade pip setuptools wheel
+          .ci-venv/bin/python -m pip install .
+          .ci-venv/bin/fmbcb-rds-multi-scan --help >/dev/null
+          .ci-venv/bin/fmbcb-rds-env-check --skip-soapy-probe || true
+      - name: Build source package
+        run: make package

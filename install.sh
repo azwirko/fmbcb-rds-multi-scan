@@ -16,6 +16,7 @@ SKIP_RX_SDR_BUILD="${FMB_SKIP_RX_SDR_BUILD:-0}"
 SKIP_CSDR_BUILD="${FMB_SKIP_CSDR_BUILD:-0}"
 SKIP_REDSEA_BUILD="${FMB_SKIP_REDSEA_BUILD:-0}"
 INSTALL_RTL_BLACKLIST="${FMB_INSTALL_RTL_BLACKLIST:-0}"
+DRY_RUN="${FMB_DRY_RUN:-0}"
 
 RX_TOOLS_REPO="${FMB_RX_TOOLS_REPO:-https://github.com/rxseger/rx_tools}"
 RX_TOOLS_REF="${FMB_RX_TOOLS_REF:-}"
@@ -44,6 +45,7 @@ Options:
   --skip-csdr-build          Do not build csdr
   --skip-redsea-build        Do not build redsea
   --install-rtl-blacklist    Install a modprobe blacklist for DVB RTL modules
+  --dry-run, --check         Validate options and print the install plan
   -h, --help                 Show this help
 
 Environment overrides:
@@ -104,17 +106,13 @@ while [[ $# -gt 0 ]]; do
     --skip-csdr-build) SKIP_CSDR_BUILD=1; shift ;;
     --skip-redsea-build) SKIP_REDSEA_BUILD=1; shift ;;
     --install-rtl-blacklist) INSTALL_RTL_BLACKLIST=1; shift ;;
+    --dry-run|--check) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
 validate_install_paths
-
-if [[ "${EUID}" -ne 0 ]]; then
-  echo "Please run as root, for example: sudo ./install.sh" >&2
-  exit 1
-fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${PREFIX}/venv"
@@ -124,6 +122,18 @@ INSTALL_INFO_FILE="${PREFIX}/install-info.env"
 log() { printf '\n==> %s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*" >&2; }
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+APT_REQUIRED_PACKAGES=(
+  ca-certificates curl git build-essential make cmake pkg-config
+  python3 python3-venv python3-pip python3-dev
+  libusb-1.0-0-dev libfftw3-dev libsndfile1-dev libliquid-dev
+  meson ninja-build nlohmann-json3-dev
+  soapysdr-tools libsoapysdr-dev usbutils
+)
+
+APT_OPTIONAL_PACKAGES=(
+  soapysdr-module-rtlsdr rtl-sdr sox
+)
 
 git_output() {
   local repo_dir="$1"
@@ -161,6 +171,88 @@ write_env_kv() {
 
 apt_package_available() {
   apt-cache show "$1" >/dev/null 2>&1
+}
+
+print_package_list() {
+  local label="$1"
+  shift
+  local pkg
+  printf '  %s:\n' "$label"
+  for pkg in "$@"; do
+    printf '    - %s\n' "$pkg"
+  done
+}
+
+print_native_plan() {
+  local command_name="$1"
+  local skip_flag="$2"
+  local repo="$3"
+  local ref="$4"
+  local dest="$5"
+
+  printf '  %s:\n' "$command_name"
+  if [[ "$SKIP_NATIVE_BUILD" == "1" || "$skip_flag" == "1" ]]; then
+    printf '    action: skip build\n'
+    return
+  fi
+  if have_cmd "$command_name" && [[ "$FORCE_BUILD" != "1" ]]; then
+    printf '    action: use existing command\n'
+    printf '    command: %s\n' "$(command -v "$command_name")"
+    return
+  fi
+  printf '    action: build from source\n'
+  printf '    repo: %s\n' "$repo"
+  printf '    ref: %s\n' "${ref:-remote default branch}"
+  printf '    source: %s\n' "$dest"
+}
+
+print_dry_run() {
+  cat <<EOF
+${APP_NAME} install preflight
+
+Paths:
+  repo root:      ${REPO_ROOT}
+  prefix:         ${PREFIX}
+  bin dir:        ${BIN_DIR}
+  build root:     ${BUILD_ROOT}
+  venv:           ${VENV_DIR}
+  app source:     ${APP_SRC_DIR}
+  install info:   ${INSTALL_INFO_FILE}
+
+Toggles:
+  skip apt:             ${SKIP_APT}
+  skip native build:    ${SKIP_NATIVE_BUILD}
+  force build:          ${FORCE_BUILD}
+  install RTL blacklist: ${INSTALL_RTL_BLACKLIST}
+
+APT:
+EOF
+
+  if [[ "$SKIP_APT" == "1" ]]; then
+    printf '  action: skip APT package install\n'
+  else
+    print_package_list "required packages" "${APT_REQUIRED_PACKAGES[@]}"
+    print_package_list "optional packages" "${APT_OPTIONAL_PACKAGES[@]}"
+  fi
+
+  cat <<EOF
+
+Native tools:
+EOF
+  print_native_plan "rx_sdr" "$SKIP_RX_SDR_BUILD" "$RX_TOOLS_REPO" "$RX_TOOLS_REF" "${BUILD_ROOT}/rx_tools"
+  print_native_plan "csdr" "$SKIP_CSDR_BUILD" "$CSDR_REPO" "$CSDR_REF" "${BUILD_ROOT}/csdr"
+  print_native_plan "redsea" "$SKIP_REDSEA_BUILD" "$REDSEA_REPO" "$REDSEA_REF" "${BUILD_ROOT}/redsea"
+
+  cat <<EOF
+
+Python app:
+  action: create/update virtual environment and install curated source snapshot
+  wrappers:
+    - ${BIN_DIR}/${APP_NAME}
+    - ${BIN_DIR}/fmbcb-rds-env-check
+
+No changes were made. Run without --dry-run/--check as root to install.
+EOF
 }
 
 apt_install_required() {
@@ -240,16 +332,10 @@ install_apt_deps() {
   apt-get update
 
   log "Installing required Debian/Ubuntu packages"
-  apt_install_required \
-    ca-certificates curl git build-essential make cmake pkg-config \
-    python3 python3-venv python3-pip python3-dev \
-    libusb-1.0-0-dev libfftw3-dev libsndfile1-dev libliquid-dev \
-    meson ninja-build nlohmann-json3-dev \
-    soapysdr-tools libsoapysdr-dev usbutils
+  apt_install_required "${APT_REQUIRED_PACKAGES[@]}"
 
   log "Installing optional Debian/Ubuntu packages when available"
-  apt_install_optional \
-    soapysdr-module-rtlsdr rtl-sdr sox
+  apt_install_optional "${APT_OPTIONAL_PACKAGES[@]}"
 }
 
 build_rx_sdr() {
@@ -392,6 +478,16 @@ EOF
 }
 
 main() {
+  if [[ "$DRY_RUN" == "1" ]]; then
+    print_dry_run
+    return 0
+  fi
+
+  if [[ "${EUID}" -ne 0 ]]; then
+    echo "Please run as root, for example: sudo ./install.sh" >&2
+    exit 1
+  fi
+
   install_apt_deps
   mkdir -p "$BUILD_ROOT"
   build_rx_sdr
