@@ -30,42 +30,36 @@ Then reboot or unplug/replug the dongle.
 
 ## SDRplay is not found
 
-The installer installs distro SoapySDR packages when available, but it does not
-install SDRplay's proprietary API or SoapySDRPlay3. Download the current Linux
-SDRplay API from:
-
-```text
-https://www.sdrplay.com/downloads/
-```
-
-Then install and start the API service:
+The installer checks the SDRplay API service and SoapySDRPlay3 module after the
+distro SoapySDR packages are installed. Rerun the installer without
+`--skip-sdrplay`, `--skip-sdrplay-api`, or `--skip-soapy-sdrplay-build`:
 
 ```bash
-chmod +x SDRplay_RSP_API-Linux-*.run
-sudo ./SDRplay_RSP_API-Linux-*.run
-sudo systemctl enable sdrplay_apiService
-sudo systemctl start sdrplay_apiService
+sudo ./install.sh
+```
+
+During SDRplay API installation, the vendor `.run` installer may prompt for EULA
+acceptance. Press `Y` only if you accept SDRplay's license terms. If the download
+URL changes, override it:
+
+```bash
+sudo FMB_SDRPLAY_API_URL=https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.15.2.run ./install.sh
+```
+
+Then check the service and SoapySDR state:
+
+```bash
 systemctl status sdrplay_apiService --no-pager
-```
-
-Build SoapySDRPlay3 from source:
-
-```bash
-git clone https://github.com/pothosware/SoapySDRPlay3.git
-cd SoapySDRPlay3
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel "$(nproc)"
-sudo cmake --install build
-sudo ldconfig
-```
-
-Then test:
-
-```bash
+SoapySDRUtil --info
 SoapySDRUtil --find=sdrplay
 SoapySDRUtil --probe="driver=sdrplay"
 fmbcb-rds-env-check
 ```
+
+`SoapySDRUtil --find=sdrplay` and `--probe="driver=sdrplay"` require connected,
+powered hardware. If the service is active and `SoapySDRUtil --info` lists an
+SDRplay module, reconnect the receiver and check USB permissions before
+rebuilding.
 
 ## Redsea builds but runtime cannot find shared libraries
 
@@ -77,7 +71,7 @@ redsea --version
 ```
 
 The installer already runs `ldconfig`, but running it manually can help after
-manual source installs.
+source installs.
 
 ## Scanner command works as root but not as normal user
 

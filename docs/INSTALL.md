@@ -8,12 +8,13 @@ and normal build tools. The primary target is Ubuntu 24.04 LTS. It installs into
 `/usr/local/bin`.
 
 A normal Ubuntu 24.04 install needs network access for APT, Python package
-downloads, and native source checkouts unless all required packages and native
-tools are already present and the relevant `--skip-*` options are used. Expect
-the first full install to take several minutes because `rx_sdr`, `csdr`, and
-`redsea` may be built from source. Subsequent installs are usually faster
-because existing commands and cached source checkouts are reused unless
-`--force-build` is supplied.
+downloads, SDRplay API download when needed, and native source checkouts unless
+all required packages and native tools are already present and the relevant
+`--skip-*` options are used. Expect the first full install to take several
+minutes because SDRplay support, `rx_sdr`, `csdr`, and `redsea` may be installed
+or built. Subsequent installs are usually faster because existing services,
+commands, modules, and cached source checkouts are reused unless `--force-build`
+is supplied.
 
 Quick start from a fresh clone:
 
@@ -47,25 +48,21 @@ checkout, the installer stops unless `--force-build` is used.
 
 ## APT packages
 
-The installer updates APT metadata once, then installs required and optional
-package groups separately. Missing required packages stop the install with a
-clear error. Missing optional packages produce warnings and the install
-continues.
+The installer updates APT metadata once, then installs the required package
+group. Missing required packages stop the install with a clear error.
 
 Required package groups:
 
 - Python: `python3`, `python3-venv`, `python3-pip`, `python3-dev`
 - Build: `git`, `build-essential`, `make`, `cmake`, `pkg-config`, `meson`, `ninja-build`
 - SDR/DSP libraries: `libusb-1.0-0-dev`, `libfftw3-dev`, `libsndfile1-dev`, `libliquid-dev`
-- SoapySDR development/runtime: `soapysdr-tools`, `libsoapysdr-dev`
+- SoapySDR development/runtime/modules: `soapysdr-tools`, `libsoapysdr-dev`, `soapysdr-module-all`
 - Utilities: `usbutils`, `curl`, `ca-certificates`
 
-Optional package group:
-
-- RTL/utility packages that can vary by release: `soapysdr-module-rtlsdr`, `rtl-sdr`, `sox`
-
-The installer installs distro SoapySDR packages. It does not build SoapySDR
-itself or install every possible SoapySDR hardware module from source.
+The installer installs distro SoapySDR tools, development files, and the
+`soapysdr-module-all` bundle. It does not build SoapySDR itself. After these
+packages are installed, it checks SDRplay API service support and builds the
+SoapySDRPlay3 hardware module from source when missing.
 
 ## Install path safety
 
@@ -85,9 +82,9 @@ plan without requiring root and without changing the system:
 ./install.sh --check --prefix /opt/fmbscan
 ```
 
-The preflight output includes install paths, APT package groups, native tool
-build decisions, configured source repositories/refs, wrapper paths, and whether
-APT or native builds are skipped.
+The preflight output includes install paths, APT package groups, SDRplay API and
+SoapySDRPlay3 actions, native tool build decisions, configured source
+repositories/refs, wrapper paths, and whether APT or native builds are skipped.
 
 ## Installed source snapshot
 
@@ -104,8 +101,9 @@ Each install writes `${FMB_PREFIX:-/opt/fmbcb-rds-multi-scan}/install-info.env`.
 This shell-readable metadata file records the installed app version, install
 time, install paths, source repository branch/commit/dirty status, configured
 native dependency repos/refs, native dependency checkout commits when present,
-and resolved `rx_sdr`, `csdr`, and `redsea` command paths. Include this file
-when reporting installer or runtime environment issues.
+SDRplay API settings, SoapySDRPlay3 source details, and resolved `rx_sdr`,
+`csdr`, and `redsea` command paths. Include this file when reporting installer
+or runtime environment issues.
 
 ## Source package
 
@@ -122,57 +120,57 @@ package, docs, examples, config samples, CI workflow, and project metadata.
 
 ## SDRplay
 
-The installer does not bundle SDRplay's proprietary API and does not install
-SoapySDRPlay3 automatically. Install the SDRplay API first, then build the
-SoapySDRPlay3 module against the installed API and distro SoapySDR development
-files.
+After the distro SoapySDR packages are installed, the installer automatically
+checks SDRplay support unless `--skip-sdrplay` is used.
 
-1. Install this project normally so the distro SoapySDR build dependencies are
-   present:
+The SDRplay flow is:
 
-```bash
-sudo ./install.sh
-```
+1. Check whether `sdrplay_apiService` is active.
+2. If the service is not installed, download
+   `https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.15.2.run` into the
+   installer build root.
+3. Mark the downloaded `.run` file executable and run it as root. The vendor
+   installer may prompt for EULA acceptance; press `Y` only if you accept
+   SDRplay's license terms.
+4. Enable and start `sdrplay_apiService`.
+5. Check whether SoapySDR has an SDRplay module loaded.
+6. If missing, clone `https://github.com/pothosware/SoapySDRPlay3.git`, build it
+   with CMake, install it into `/usr/local`, and run `ldconfig`.
+7. At the end of the install, print `SoapySDRUtil --info`, `SoapySDRUtil --find`,
+   and `SoapySDRUtil --find=sdrplay` output so the loaded SDR module support and
+   detected devices are visible.
 
-2. Download the current Linux SDRplay API installer from:
-
-```text
-https://www.sdrplay.com/downloads/
-```
-
-Choose the API download for Linux. From the directory containing the downloaded
-`.run` file:
-
-```bash
-chmod +x SDRplay_RSP_API-Linux-*.run
-sudo ./SDRplay_RSP_API-Linux-*.run
-sudo systemctl enable sdrplay_apiService
-sudo systemctl start sdrplay_apiService
-systemctl status sdrplay_apiService --no-pager
-```
-
-3. Build and install SoapySDRPlay3 from source:
+Useful controls:
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y --no-install-recommends git cmake build-essential libsoapysdr-dev soapysdr-tools
-git clone https://github.com/pothosware/SoapySDRPlay3.git
-cd SoapySDRPlay3
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel "$(nproc)"
-sudo cmake --install build
-sudo ldconfig
+# Skip all SDRplay API and SoapySDRPlay3 work.
+sudo ./install.sh --skip-sdrplay
+
+# Skip only the proprietary SDRplay API installer/service management.
+sudo ./install.sh --skip-sdrplay-api
+
+# Skip only the SoapySDRPlay3 source build.
+sudo ./install.sh --skip-soapy-sdrplay-build
+
+# Override source locations or pin SoapySDRPlay3.
+sudo FMB_SDRPLAY_API_URL=https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.15.2.run \
+  FMB_SOAPY_SDRPLAY_REF=<commit-or-tag> \
+  ./install.sh
 ```
 
-4. Verify the SDRplay API service and SoapySDR driver:
+For SDRplay runtime verification after installation:
 
 ```bash
 systemctl is-active sdrplay_apiService
+SoapySDRUtil --info
 SoapySDRUtil --find=sdrplay
 SoapySDRUtil --probe="driver=sdrplay"
 fmbcb-rds-env-check
 ```
 
+`SoapySDRUtil --find=sdrplay` and `--probe="driver=sdrplay"` require connected,
+powered hardware. A loaded SoapySDRPlay3 module can still be present when no
+SDRplay receiver is attached.
 
 ## systemd service
 
@@ -199,11 +197,11 @@ sudo usermod -aG plugdev fmbscan
 # sudo usermod -aG dialout fmbscan
 ```
 
-For RTL-SDR devices, install udev rules from the distro `rtl-sdr` package or
-from your hardware vendor. If Linux DVB modules claim the dongle, rerun the
-installer with `--install-rtl-blacklist`, then reboot or unplug/replug the
-device. For SDRplay, install and start the SDRplay API service before running
-this scanner service.
+For RTL-SDR devices, install udev rules from your distro package or hardware
+vendor when needed. If Linux DVB modules claim the dongle, rerun the installer
+with `--install-rtl-blacklist`, then reboot or unplug/replug the device. For
+SDRplay, confirm `sdrplay_apiService` is active before running this scanner
+service.
 
 3. Install and edit the unit file:
 
