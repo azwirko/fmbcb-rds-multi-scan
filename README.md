@@ -8,9 +8,8 @@ This repo is designed for a shell-installer workflow rather than a `.deb`
 package. The installer:
 
 - installs Debian/Ubuntu build/runtime packages when available;
-- installs distro SoapySDR packages when available;
-- installs distro RTL-SDR SoapySDR support when available;
-- documents the manual SDRplay API and SoapySDRPlay3 source install path;
+- installs distro SoapySDR tools, development files, and `soapysdr-module-all`;
+- checks SDRplay API 3.x service support and builds SoapySDRPlay3 when needed;
 - builds and installs missing `rx_sdr`, `csdr`, and `redsea` tools as needed;
 - creates `/opt/fmbcb-rds-multi-scan/venv`;
 - installs the Python package into that venv from a curated source snapshot;
@@ -45,11 +44,10 @@ fmbcb-rds-multi-scan \
   --show-command
 ```
 
-For SDRplay, first install the current SDRplay API from
-<https://www.sdrplay.com/downloads/>, enable the SDRplay API service, build and
-install SoapySDRPlay3 from <https://github.com/pothosware/SoapySDRPlay3>, and
-verify `SoapySDRUtil --probe="driver=sdrplay"` works. See
-[docs/INSTALL.md](docs/INSTALL.md) for the full sequence. Then use:
+For SDRplay, the installer checks the `sdrplay_apiService`, downloads and runs
+SDRplay API 3.x when needed, builds SoapySDRPlay3 from source, and prints
+`SoapySDRUtil` module/device output at the end. The SDRplay API installer may
+prompt for EULA acceptance. Then use:
 
 ```bash
 fmbcb-rds-multi-scan \
@@ -78,6 +76,9 @@ sudo ./install.sh --skip-native-build
 
 # rebuild native tools even if commands already exist
 sudo ./install.sh --force-build
+
+# skip SDRplay API and SoapySDRPlay3 handling on RTL-only systems
+sudo ./install.sh --skip-sdrplay
 
 # optionally blacklist Linux DVB modules that can claim RTL-SDR dongles
 sudo ./install.sh --install-rtl-blacklist
@@ -125,7 +126,8 @@ make package
   obvious SDR USB visibility, conflicting RTL kernel modules, and SoapySDR
   device discovery.
 - `install-info.env` records the installed app version, source commit, install
-  paths, native dependency repos/refs, and native checkout commits when present.
+  paths, native dependency repos/refs, SDRplay installer settings, and native
+  checkout commits when present.
 - The `rx_sdr` source repo is configurable through `FMB_RX_TOOLS_REPO` because
   deployments may use different forks/builds of the SoapySDR `rx_sdr` tool.
 

@@ -24,15 +24,23 @@ CSDR_REPO="${FMB_CSDR_REPO:-https://github.com/ha7ilm/csdr.git}"
 CSDR_REF="${FMB_CSDR_REF:-}"
 REDSEA_REPO="${FMB_REDSEA_REPO:-https://github.com/windytan/redsea.git}"
 REDSEA_REF="${FMB_REDSEA_REF:-}"
+SDRPLAY_API_URL="${FMB_SDRPLAY_API_URL:-https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.15.2.run}"
+SDRPLAY_API_INSTALLER_OVERRIDE="${FMB_SDRPLAY_API_INSTALLER:-}"
+SDRPLAY_API_SERVICE="${FMB_SDRPLAY_API_SERVICE:-sdrplay_apiService}"
+SOAPY_SDRPLAY_REPO="${FMB_SOAPY_SDRPLAY_REPO:-https://github.com/pothosware/SoapySDRPlay3.git}"
+SOAPY_SDRPLAY_REF="${FMB_SOAPY_SDRPLAY_REF:-}"
+SKIP_SDRPLAY="${FMB_SKIP_SDRPLAY:-0}"
+SKIP_SDRPLAY_API="${FMB_SKIP_SDRPLAY_API:-0}"
+SKIP_SOAPY_SDRPLAY_BUILD="${FMB_SKIP_SOAPY_SDRPLAY_BUILD:-0}"
 
 usage() {
   cat <<EOF
 Usage: sudo ./install.sh [options]
 
 Install ${APP_NAME}, create a Python virtual environment, install wrappers, and
-build missing native SDR tools when needed. Distro SoapySDR packages are
-installed through APT when available; SDRplay API and SoapySDRPlay3 remain a
-manual install path documented in docs/INSTALL.md.
+build missing native SDR tools when needed. Distro SoapySDR tools, development
+files, and module bundle are installed through APT. SDRplay API 3.x and
+SoapySDRPlay3 are checked and installed when missing.
 
 Options:
   --prefix PATH              Install app under PATH [${DEFAULT_PREFIX}]
@@ -44,6 +52,9 @@ Options:
   --skip-rx-sdr-build        Do not build rx_sdr
   --skip-csdr-build          Do not build csdr
   --skip-redsea-build        Do not build redsea
+  --skip-sdrplay             Do not install SDRplay API or SoapySDRPlay3
+  --skip-sdrplay-api         Do not install/start the SDRplay API service
+  --skip-soapy-sdrplay-build Do not build SoapySDRPlay3 from source
   --install-rtl-blacklist    Install a modprobe blacklist for DVB RTL modules
   --dry-run, --check         Validate options and print the install plan
   -h, --help                 Show this help
@@ -52,10 +63,12 @@ Environment overrides:
   FMB_RX_TOOLS_REPO, FMB_RX_TOOLS_REF
   FMB_CSDR_REPO, FMB_CSDR_REF
   FMB_REDSEA_REPO, FMB_REDSEA_REF
+  FMB_SDRPLAY_API_URL, FMB_SDRPLAY_API_INSTALLER, FMB_SDRPLAY_API_SERVICE
+  FMB_SOAPY_SDRPLAY_REPO, FMB_SOAPY_SDRPLAY_REF
 
 Notes:
-  SDRplay users still need the SDRplay API and SoapySDRPlay3 installed
-  separately. See docs/INSTALL.md.
+  The SDRplay API vendor installer may prompt for EULA acceptance. Press Y only
+  if you accept SDRplay's license terms.
 EOF
 }
 
@@ -105,6 +118,9 @@ while [[ $# -gt 0 ]]; do
     --skip-rx-sdr-build) SKIP_RX_SDR_BUILD=1; shift ;;
     --skip-csdr-build) SKIP_CSDR_BUILD=1; shift ;;
     --skip-redsea-build) SKIP_REDSEA_BUILD=1; shift ;;
+    --skip-sdrplay) SKIP_SDRPLAY=1; shift ;;
+    --skip-sdrplay-api) SKIP_SDRPLAY_API=1; shift ;;
+    --skip-soapy-sdrplay-build) SKIP_SOAPY_SDRPLAY_BUILD=1; shift ;;
     --install-rtl-blacklist) INSTALL_RTL_BLACKLIST=1; shift ;;
     --dry-run|--check) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -114,6 +130,11 @@ done
 
 validate_install_paths
 
+SDRPLAY_API_INSTALLER="${SDRPLAY_API_INSTALLER_OVERRIDE:-${BUILD_ROOT}/downloads/SDRplay_RSP_API-Linux-3.15.2.run}"
+if [[ "$SDRPLAY_API_INSTALLER" != /* ]]; then
+  die "FMB_SDRPLAY_API_INSTALLER must be an absolute path: ${SDRPLAY_API_INSTALLER}"
+fi
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${PREFIX}/venv"
 APP_SRC_DIR="${PREFIX}/src"
@@ -122,18 +143,17 @@ INSTALL_INFO_FILE="${PREFIX}/install-info.env"
 log() { printf '\n==> %s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*" >&2; }
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
+require_cmd() { have_cmd "$1" || die "Required command not found: $1"; }
 
 APT_REQUIRED_PACKAGES=(
   ca-certificates curl git build-essential make cmake pkg-config
   python3 python3-venv python3-pip python3-dev
   libusb-1.0-0-dev libfftw3-dev libsndfile1-dev libliquid-dev
   meson ninja-build nlohmann-json3-dev
-  soapysdr-tools libsoapysdr-dev usbutils
+  soapysdr-tools libsoapysdr-dev soapysdr-module-all usbutils
 )
 
-APT_OPTIONAL_PACKAGES=(
-  soapysdr-module-rtlsdr rtl-sdr sox
-)
+APT_OPTIONAL_PACKAGES=()
 
 git_output() {
   local repo_dir="$1"
@@ -206,6 +226,28 @@ print_native_plan() {
   printf '    source: %s\n' "$dest"
 }
 
+print_sdrplay_plan() {
+  printf '  SDRplay API service:\n'
+  if [[ "$SKIP_SDRPLAY" == "1" || "$SKIP_SDRPLAY_API" == "1" ]]; then
+    printf '    action: skip API installer and service management\n'
+  else
+    printf '    action: check service, download/run API installer if missing, enable/start service\n'
+    printf '    service: %s\n' "$SDRPLAY_API_SERVICE"
+    printf '    installer URL: %s\n' "$SDRPLAY_API_URL"
+    printf '    installer path: %s\n' "$SDRPLAY_API_INSTALLER"
+  fi
+
+  printf '  SoapySDRPlay3:\n'
+  if [[ "$SKIP_SDRPLAY" == "1" || "$SKIP_SOAPY_SDRPLAY_BUILD" == "1" ]]; then
+    printf '    action: skip SoapySDRPlay3 source build\n'
+  else
+    printf '    action: check loaded SoapySDR module, build from source if missing\n'
+    printf '    repo: %s\n' "$SOAPY_SDRPLAY_REPO"
+    printf '    ref: %s\n' "${SOAPY_SDRPLAY_REF:-remote default branch}"
+    printf '    source: %s\n' "${BUILD_ROOT}/SoapySDRPlay3"
+  fi
+}
+
 print_dry_run() {
   cat <<EOF
 ${APP_NAME} install preflight
@@ -224,6 +266,9 @@ Toggles:
   skip native build:    ${SKIP_NATIVE_BUILD}
   force build:          ${FORCE_BUILD}
   install RTL blacklist: ${INSTALL_RTL_BLACKLIST}
+  skip SDRplay:         ${SKIP_SDRPLAY}
+  skip SDRplay API:     ${SKIP_SDRPLAY_API}
+  skip SoapySDRPlay3:   ${SKIP_SOAPY_SDRPLAY_BUILD}
 
 APT:
 EOF
@@ -232,7 +277,9 @@ EOF
     printf '  action: skip APT package install\n'
   else
     print_package_list "required packages" "${APT_REQUIRED_PACKAGES[@]}"
-    print_package_list "optional packages" "${APT_OPTIONAL_PACKAGES[@]}"
+    if ((${#APT_OPTIONAL_PACKAGES[@]})); then
+      print_package_list "optional packages" "${APT_OPTIONAL_PACKAGES[@]}"
+    fi
   fi
 
   cat <<EOF
@@ -242,6 +289,12 @@ EOF
   print_native_plan "rx_sdr" "$SKIP_RX_SDR_BUILD" "$RX_TOOLS_REPO" "$RX_TOOLS_REF" "${BUILD_ROOT}/rx_tools"
   print_native_plan "csdr" "$SKIP_CSDR_BUILD" "$CSDR_REPO" "$CSDR_REF" "${BUILD_ROOT}/csdr"
   print_native_plan "redsea" "$SKIP_REDSEA_BUILD" "$REDSEA_REPO" "$REDSEA_REF" "${BUILD_ROOT}/redsea"
+
+  cat <<EOF
+
+SDRplay support:
+EOF
+  print_sdrplay_plan
 
   cat <<EOF
 
@@ -334,8 +387,108 @@ install_apt_deps() {
   log "Installing required Debian/Ubuntu packages"
   apt_install_required "${APT_REQUIRED_PACKAGES[@]}"
 
-  log "Installing optional Debian/Ubuntu packages when available"
-  apt_install_optional "${APT_OPTIONAL_PACKAGES[@]}"
+  if ((${#APT_OPTIONAL_PACKAGES[@]})); then
+    log "Installing optional Debian/Ubuntu packages when available"
+    apt_install_optional "${APT_OPTIONAL_PACKAGES[@]}"
+  fi
+}
+
+sdrplay_service_unit_exists() {
+  systemctl list-unit-files "${SDRPLAY_API_SERVICE}.service" --no-legend 2>/dev/null | grep -Fq "${SDRPLAY_API_SERVICE}.service"
+}
+
+sdrplay_service_active() {
+  systemctl is-active --quiet "$SDRPLAY_API_SERVICE"
+}
+
+soapy_sdrplay_module_loaded() {
+  have_cmd SoapySDRUtil || return 1
+  SoapySDRUtil --info 2>/dev/null | grep -Eiq 'sdrplay|sdrPlay|SoapySDRPlay'
+}
+
+install_sdrplay_api() {
+  [[ "$SKIP_SDRPLAY" == "1" || "$SKIP_SDRPLAY_API" == "1" ]] && { warn "Skipping SDRplay API install/service check"; return; }
+
+  require_cmd curl
+  require_cmd systemctl
+
+  if sdrplay_service_active; then
+    log "SDRplay API service already active: ${SDRPLAY_API_SERVICE}"
+    return
+  fi
+
+  if sdrplay_service_unit_exists; then
+    log "Enabling and starting existing SDRplay API service: ${SDRPLAY_API_SERVICE}"
+    systemctl enable "$SDRPLAY_API_SERVICE"
+    systemctl start "$SDRPLAY_API_SERVICE"
+  else
+    log "Downloading SDRplay API installer"
+    mkdir -p "$(dirname "$SDRPLAY_API_INSTALLER")"
+    curl -fL --retry 3 -o "$SDRPLAY_API_INSTALLER" "$SDRPLAY_API_URL"
+    chmod 0755 "$SDRPLAY_API_INSTALLER"
+
+    warn "The SDRplay API installer may prompt for EULA acceptance. Press Y only if you accept SDRplay's license terms."
+    "$SDRPLAY_API_INSTALLER"
+
+    systemctl daemon-reload || true
+    systemctl enable "$SDRPLAY_API_SERVICE"
+    systemctl start "$SDRPLAY_API_SERVICE"
+  fi
+
+  if ! sdrplay_service_active; then
+    die "SDRplay API service is not active after install/start: ${SDRPLAY_API_SERVICE}"
+  fi
+}
+
+build_soapy_sdrplay() {
+  [[ "$SKIP_SDRPLAY" == "1" || "$SKIP_SOAPY_SDRPLAY_BUILD" == "1" ]] && { warn "Skipping SoapySDRPlay3 build"; return; }
+
+  require_cmd SoapySDRUtil
+  require_cmd git
+  require_cmd cmake
+
+  if soapy_sdrplay_module_loaded && [[ "$FORCE_BUILD" != "1" ]]; then
+    log "SoapySDRPlay3 module already loaded by SoapySDR"
+    return
+  fi
+
+  log "Building SoapySDRPlay3"
+  local src="${BUILD_ROOT}/SoapySDRPlay3"
+  clone_or_update "$SOAPY_SDRPLAY_REPO" "$SOAPY_SDRPLAY_REF" "$src"
+  cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local
+  cmake --build "$src/build" --parallel "$(nproc)"
+  cmake --install "$src/build"
+  ldconfig || true
+
+  if ! soapy_sdrplay_module_loaded; then
+    die "SoapySDRPlay3 installed, but SoapySDRUtil --info does not show an SDRplay module."
+  fi
+}
+
+install_sdrplay_support() {
+  [[ "$SKIP_SDRPLAY" == "1" ]] && { warn "Skipping SDRplay support install/check"; return; }
+
+  install_sdrplay_api
+  build_soapy_sdrplay
+}
+
+print_soapy_support() {
+  if ! have_cmd SoapySDRUtil; then
+    warn "SoapySDRUtil is not installed; cannot print loaded SDR module support."
+    return
+  fi
+
+  log "Loaded SoapySDR module support"
+  SoapySDRUtil --info || warn "SoapySDRUtil --info failed."
+
+  log "Detected SoapySDR devices"
+  SoapySDRUtil --find || warn "SoapySDRUtil --find did not detect devices."
+
+  log "SDRplay SoapySDR check"
+  SoapySDRUtil --find=sdrplay || warn "SoapySDRUtil --find=sdrplay did not detect an SDRplay device. Connect hardware and confirm ${SDRPLAY_API_SERVICE} is active."
+
+  log "SDRplay SoapySDR probe"
+  SoapySDRUtil --probe="driver=sdrplay" || warn "SoapySDRUtil --probe=driver=sdrplay failed. This can happen when no SDRplay receiver is attached."
 }
 
 build_rx_sdr() {
@@ -457,6 +610,18 @@ PYAPPVERSION
   write_env_kv "REDSEA_REPO" "$REDSEA_REPO"
   write_env_kv "REDSEA_REF" "$REDSEA_REF"
   write_env_kv "REDSEA_COMMIT" "$(git_commit_for_dir "${BUILD_ROOT}/redsea")"
+  write_env_kv "SDRPLAY_API_URL" "$SDRPLAY_API_URL"
+  write_env_kv "SDRPLAY_API_INSTALLER" "$SDRPLAY_API_INSTALLER"
+  write_env_kv "SDRPLAY_API_SERVICE" "$SDRPLAY_API_SERVICE"
+  write_env_kv "SDRPLAY_API_SERVICE_ACTIVE" "$(systemctl is-active "$SDRPLAY_API_SERVICE" 2>/dev/null || true)"
+  write_env_kv "SOAPY_SDRPLAY_REPO" "$SOAPY_SDRPLAY_REPO"
+  write_env_kv "SOAPY_SDRPLAY_REF" "$SOAPY_SDRPLAY_REF"
+  write_env_kv "SOAPY_SDRPLAY_COMMIT" "$(git_commit_for_dir "${BUILD_ROOT}/SoapySDRPlay3")"
+  if soapy_sdrplay_module_loaded; then
+    write_env_kv "SOAPY_SDRPLAY_MODULE_LOADED" "yes"
+  else
+    write_env_kv "SOAPY_SDRPLAY_MODULE_LOADED" "no"
+  fi
   write_env_kv "RX_SDR_COMMAND" "$(command -v rx_sdr || true)"
   write_env_kv "CSDR_COMMAND" "$(command -v csdr || true)"
   write_env_kv "REDSEA_COMMAND" "$(command -v redsea || true)"
@@ -490,6 +655,7 @@ main() {
 
   install_apt_deps
   mkdir -p "$BUILD_ROOT"
+  install_sdrplay_support
   build_rx_sdr
   build_csdr
   build_redsea
@@ -502,6 +668,8 @@ main() {
   if ! "${BIN_DIR}/fmbcb-rds-env-check"; then
     warn "Install completed, but the environment checker reported problems. Review the messages above."
   fi
+
+  print_soapy_support
 
   cat <<EOF
 
