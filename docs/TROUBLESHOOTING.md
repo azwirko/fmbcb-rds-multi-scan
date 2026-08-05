@@ -10,11 +10,28 @@ command -v rx_sdr
 ```
 
 If it is missing, rerun the installer without `--skip-native-build` and without
-`--skip-rx-sdr-build`. If your `rx_sdr` source is from a different fork, set:
+`--skip-rx-sdr-build`. The installer will install missing compile prerequisites
+through APT before building. If your `rx_sdr` source is from a different fork,
+set:
 
 ```bash
 export FMB_RX_TOOLS_REPO=https://your-rx-tools-repo.git
 sudo -E ./install.sh --force-build
+```
+
+
+## Source build prerequisites are missing
+
+When `rx_sdr`, `csdr`, `redsea`, or SoapySDRPlay3 must be built from source, the
+installer checks for compile prerequisites such as `git`, `build-essential`,
+`cmake`, `make`, `pkg-config`, `meson`, `ninja-build`, and related development
+headers. Missing packages are installed automatically through APT.
+
+If you used `--skip-build-prereq-apt`, install the listed missing packages
+manually or rerun without that option:
+
+```bash
+sudo ./install.sh
 ```
 
 ## RTL-SDR is visible in `lsusb` but not usable
