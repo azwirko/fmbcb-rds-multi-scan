@@ -10,6 +10,7 @@ package. The installer:
 - installs Debian/Ubuntu build/runtime packages when available;
 - installs distro SoapySDR tools, development files, and `soapysdr-module-all`;
 - checks SDRplay API 3.x service support and builds SoapySDRPlay3 when needed;
+- installs missing compile prerequisites before source builds;
 - builds and installs missing `rx_sdr`, `csdr`, and `redsea` tools as needed;
 - creates `/opt/fmbcb-rds-multi-scan/venv`;
 - installs the Python package into that venv from a curated source snapshot;
@@ -73,6 +74,9 @@ sudo ./install.sh --prefix /opt/fmbscan
 
 # do not build native tools; useful when you already installed them manually
 sudo ./install.sh --skip-native-build
+
+# prevent automatic APT install of compile prerequisites during source builds
+sudo ./install.sh --skip-build-prereq-apt
 
 # rebuild native tools even if commands already exist
 sudo ./install.sh --force-build

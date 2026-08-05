@@ -12,9 +12,10 @@ downloads, SDRplay API download when needed, and native source checkouts unless
 all required packages and native tools are already present and the relevant
 `--skip-*` options are used. Expect the first full install to take several
 minutes because SDRplay support, `rx_sdr`, `csdr`, and `redsea` may be installed
-or built. Subsequent installs are usually faster because existing services,
-commands, modules, and cached source checkouts are reused unless `--force-build`
-is supplied.
+or built. When a source build is required, the installer checks the compile
+prerequisite packages and installs missing ones through APT. Subsequent installs
+are usually faster because existing services, commands, modules, and cached
+source checkouts are reused unless `--force-build` is supplied.
 
 Quick start from a fresh clone:
 
@@ -37,7 +38,9 @@ The app expects these commands in `PATH`:
 The installer checks for each command first. If the command is present, it is
 not rebuilt unless `--force-build` is supplied. If the command is missing, the
 installer tries to build it from source, unless skipped with one of the
-`--skip-*` options.
+`--skip-*` options. Before each source build, it checks for the required compile
+packages and installs missing ones with APT unless `--skip-build-prereq-apt` is
+used.
 
 Native source checkouts live under `--build-root`. Existing git checkouts have
 their `origin` URL updated from the configured `FMB_*_REPO` value, then tags are
@@ -62,7 +65,11 @@ Required package groups:
 The installer installs distro SoapySDR tools, development files, and the
 `soapysdr-module-all` bundle. It does not build SoapySDR itself. After these
 packages are installed, it checks SDRplay API service support and builds the
-SoapySDRPlay3 hardware module from source when missing.
+SoapySDRPlay3 hardware module from source when missing. If the full APT package
+step is skipped but a source build is still needed, the installer still installs
+missing compile prerequisites through the standard Debian/Ubuntu APT process.
+Use `--skip-build-prereq-apt` only when you want missing compile tools to be a
+hard error instead.
 
 ## Install path safety
 
@@ -84,7 +91,8 @@ plan without requiring root and without changing the system:
 
 The preflight output includes install paths, APT package groups, SDRplay API and
 SoapySDRPlay3 actions, native tool build decisions, configured source
-repositories/refs, wrapper paths, and whether APT or native builds are skipped.
+repositories/refs, wrapper paths, and whether full APT, build-prerequisite APT,
+or native builds are skipped.
 
 ## Installed source snapshot
 
@@ -151,6 +159,9 @@ sudo ./install.sh --skip-sdrplay-api
 
 # Skip only the SoapySDRPlay3 source build.
 sudo ./install.sh --skip-soapy-sdrplay-build
+
+# Do not auto-install compile prerequisites for source builds.
+sudo ./install.sh --skip-build-prereq-apt
 
 # Override source locations or pin SoapySDRPlay3.
 sudo FMB_SDRPLAY_API_URL=https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.15.2.run \

@@ -32,6 +32,8 @@ SOAPY_SDRPLAY_REF="${FMB_SOAPY_SDRPLAY_REF:-}"
 SKIP_SDRPLAY="${FMB_SKIP_SDRPLAY:-0}"
 SKIP_SDRPLAY_API="${FMB_SKIP_SDRPLAY_API:-0}"
 SKIP_SOAPY_SDRPLAY_BUILD="${FMB_SKIP_SOAPY_SDRPLAY_BUILD:-0}"
+SKIP_BUILD_PREREQ_APT="${FMB_SKIP_BUILD_PREREQ_APT:-0}"
+APT_UPDATED=0
 
 usage() {
   cat <<EOF
@@ -47,7 +49,7 @@ Options:
   --bin-dir PATH             Install command wrappers under PATH [${DEFAULT_BIN_DIR}]
   --build-root PATH          Native dependency source/build root [${DEFAULT_BUILD_ROOT}]
   --force-build              Rebuild native tools even when commands already exist
-  --skip-apt                 Do not install APT packages
+  --skip-apt                 Do not install the full runtime APT package group
   --skip-native-build        Do not build rx_sdr, csdr, or redsea
   --skip-rx-sdr-build        Do not build rx_sdr
   --skip-csdr-build          Do not build csdr
@@ -55,6 +57,7 @@ Options:
   --skip-sdrplay             Do not install SDRplay API or SoapySDRPlay3
   --skip-sdrplay-api         Do not install/start the SDRplay API service
   --skip-soapy-sdrplay-build Do not build SoapySDRPlay3 from source
+  --skip-build-prereq-apt   Do not auto-install source-build prerequisites
   --install-rtl-blacklist    Install a modprobe blacklist for DVB RTL modules
   --dry-run, --check         Validate options and print the install plan
   -h, --help                 Show this help
@@ -65,6 +68,7 @@ Environment overrides:
   FMB_REDSEA_REPO, FMB_REDSEA_REF
   FMB_SDRPLAY_API_URL, FMB_SDRPLAY_API_INSTALLER, FMB_SDRPLAY_API_SERVICE
   FMB_SOAPY_SDRPLAY_REPO, FMB_SOAPY_SDRPLAY_REF
+  FMB_SKIP_BUILD_PREREQ_APT
 
 Notes:
   The SDRplay API vendor installer may prompt for EULA acceptance. Press Y only
@@ -121,6 +125,7 @@ while [[ $# -gt 0 ]]; do
     --skip-sdrplay) SKIP_SDRPLAY=1; shift ;;
     --skip-sdrplay-api) SKIP_SDRPLAY_API=1; shift ;;
     --skip-soapy-sdrplay-build) SKIP_SOAPY_SDRPLAY_BUILD=1; shift ;;
+    --skip-build-prereq-apt) SKIP_BUILD_PREREQ_APT=1; shift ;;
     --install-rtl-blacklist) INSTALL_RTL_BLACKLIST=1; shift ;;
     --dry-run|--check) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -154,6 +159,12 @@ APT_REQUIRED_PACKAGES=(
 )
 
 APT_OPTIONAL_PACKAGES=()
+
+APT_BUILD_PREREQ_PACKAGES=(
+  ca-certificates curl git build-essential make cmake pkg-config
+  libusb-1.0-0-dev libfftw3-dev libsndfile1-dev libliquid-dev
+  meson ninja-build nlohmann-json3-dev libsoapysdr-dev soapysdr-tools
+)
 
 git_output() {
   local repo_dir="$1"
@@ -191,6 +202,18 @@ write_env_kv() {
 
 apt_package_available() {
   apt-cache show "$1" >/dev/null 2>&1
+}
+
+apt_package_installed() {
+  dpkg-query -W -f='${db:Status-Abbrev}' "$1" 2>/dev/null | grep -q '^ii '
+}
+
+apt_update_once() {
+  if [[ "$APT_UPDATED" == "0" ]]; then
+    log "Updating APT package metadata"
+    apt-get update
+    APT_UPDATED=1
+  fi
 }
 
 print_package_list() {
@@ -269,12 +292,13 @@ Toggles:
   skip SDRplay:         ${SKIP_SDRPLAY}
   skip SDRplay API:     ${SKIP_SDRPLAY_API}
   skip SoapySDRPlay3:   ${SKIP_SOAPY_SDRPLAY_BUILD}
+  skip build prereq APT: ${SKIP_BUILD_PREREQ_APT}
 
 APT:
 EOF
 
   if [[ "$SKIP_APT" == "1" ]]; then
-    printf '  action: skip APT package install\n'
+    printf '  action: skip full APT package install\n'
   else
     print_package_list "required packages" "${APT_REQUIRED_PACKAGES[@]}"
     if ((${#APT_OPTIONAL_PACKAGES[@]})); then
@@ -342,6 +366,43 @@ apt_install_optional() {
   fi
 }
 
+install_missing_apt_packages() {
+  local reason="$1"
+  shift
+  local requested=("$@")
+  local missing=()
+  local pkg
+
+  for pkg in "${requested[@]}"; do
+    if ! apt_package_available "$pkg"; then
+      missing+=("$pkg")
+    elif ! apt_package_installed "$pkg"; then
+      missing+=("$pkg")
+    fi
+  done
+
+  if ((${#missing[@]} == 0)); then
+    return
+  fi
+
+  if [[ "$SKIP_BUILD_PREREQ_APT" == "1" ]]; then
+    printf 'ERROR: Missing APT package(s) required for %s:\n' "$reason" >&2
+    printf '  %s\n' "${missing[@]}" >&2
+    printf 'Rerun without --skip-build-prereq-apt or install these packages manually.\n' >&2
+    exit 1
+  fi
+
+  log "Installing Debian/Ubuntu packages required for ${reason}"
+  apt_update_once
+  apt-get install -y --no-install-recommends "${missing[@]}"
+}
+
+ensure_source_build_prereqs() {
+  local reason="$1"
+  shift
+  install_missing_apt_packages "$reason" "${APT_BUILD_PREREQ_PACKAGES[@]}" "$@"
+}
+
 clone_or_update() {
   local repo="$1"
   local ref="$2"
@@ -381,8 +442,7 @@ install_apt_deps() {
   [[ "$SKIP_APT" == "1" ]] && { warn "Skipping APT dependency install"; return; }
 
   export DEBIAN_FRONTEND=noninteractive
-  log "Updating APT package metadata"
-  apt-get update
+  apt_update_once
 
   log "Installing required Debian/Ubuntu packages"
   apt_install_required "${APT_REQUIRED_PACKAGES[@]}"
@@ -409,6 +469,7 @@ soapy_sdrplay_module_loaded() {
 install_sdrplay_api() {
   [[ "$SKIP_SDRPLAY" == "1" || "$SKIP_SDRPLAY_API" == "1" ]] && { warn "Skipping SDRplay API install/service check"; return; }
 
+  install_missing_apt_packages "SDRplay API download" ca-certificates curl
   require_cmd curl
   require_cmd systemctl
 
@@ -443,14 +504,15 @@ install_sdrplay_api() {
 build_soapy_sdrplay() {
   [[ "$SKIP_SDRPLAY" == "1" || "$SKIP_SOAPY_SDRPLAY_BUILD" == "1" ]] && { warn "Skipping SoapySDRPlay3 build"; return; }
 
-  require_cmd SoapySDRUtil
-  require_cmd git
-  require_cmd cmake
-
   if soapy_sdrplay_module_loaded && [[ "$FORCE_BUILD" != "1" ]]; then
     log "SoapySDRPlay3 module already loaded by SoapySDR"
     return
   fi
+
+  ensure_source_build_prereqs "SoapySDRPlay3 source build"
+  require_cmd SoapySDRUtil
+  require_cmd git
+  require_cmd cmake
 
   log "Building SoapySDRPlay3"
   local src="${BUILD_ROOT}/SoapySDRPlay3"
@@ -498,6 +560,7 @@ build_rx_sdr() {
     return
   fi
 
+  ensure_source_build_prereqs "rx_sdr source build"
   log "Building rx_sdr"
   local src="${BUILD_ROOT}/rx_tools"
   clone_or_update "$RX_TOOLS_REPO" "$RX_TOOLS_REF" "$src"
@@ -514,6 +577,7 @@ build_csdr() {
     return
   fi
 
+  ensure_source_build_prereqs "csdr source build"
   log "Building csdr"
   local src="${BUILD_ROOT}/csdr"
   clone_or_update "$CSDR_REPO" "$CSDR_REF" "$src"
@@ -529,6 +593,7 @@ build_redsea() {
     return
   fi
 
+  ensure_source_build_prereqs "redsea source build"
   log "Building redsea"
   local src="${BUILD_ROOT}/redsea"
   clone_or_update "$REDSEA_REPO" "$REDSEA_REF" "$src"
