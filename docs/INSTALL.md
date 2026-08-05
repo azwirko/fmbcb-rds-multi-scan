@@ -133,14 +133,14 @@ checks SDRplay support unless `--skip-sdrplay` is used.
 
 The SDRplay flow is:
 
-1. Check whether `sdrplay_apiService` is active.
+1. Check whether `sdrplay` is active.
 2. If the service is not installed, download
    `https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.15.2.run` into the
    installer build root.
 3. Mark the downloaded `.run` file executable and run it as root. The vendor
    installer may prompt for EULA acceptance; press `Y` only if you accept
    SDRplay's license terms.
-4. Enable and start `sdrplay_apiService`.
+4. Enable and start `sdrplay`.
 5. Check whether SoapySDR has an SDRplay module loaded.
 6. If missing, clone `https://github.com/pothosware/SoapySDRPlay3.git`, build it
    with CMake, install it into `/usr/local`, and run `ldconfig`.
@@ -172,7 +172,7 @@ sudo FMB_SDRPLAY_API_URL=https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-
 For SDRplay runtime verification after installation:
 
 ```bash
-systemctl is-active sdrplay_apiService
+systemctl is-active sdrplay
 SoapySDRUtil --info
 SoapySDRUtil --find=sdrplay
 SoapySDRUtil --probe="driver=sdrplay"
@@ -211,7 +211,7 @@ sudo usermod -aG plugdev fmbscan
 For RTL-SDR devices, install udev rules from your distro package or hardware
 vendor when needed. If Linux DVB modules claim the dongle, rerun the installer
 with `--install-rtl-blacklist`, then reboot or unplug/replug the device. For
-SDRplay, confirm `sdrplay_apiService` is active before running this scanner
+SDRplay, confirm `sdrplay` is active before running this scanner
 service.
 
 3. Install and edit the unit file:

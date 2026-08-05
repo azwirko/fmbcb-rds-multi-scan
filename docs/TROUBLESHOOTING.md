@@ -66,7 +66,7 @@ sudo FMB_SDRPLAY_API_URL=https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-
 Then check the service and SoapySDR state:
 
 ```bash
-systemctl status sdrplay_apiService --no-pager
+systemctl status sdrplay --no-pager
 SoapySDRUtil --info
 SoapySDRUtil --find=sdrplay
 SoapySDRUtil --probe="driver=sdrplay"
