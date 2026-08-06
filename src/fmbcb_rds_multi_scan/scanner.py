@@ -927,9 +927,57 @@ RX_SDR_PROFILES = {
         "gain_max": 6,
         "gain_incr": 1,
     },
+    "airspy": {
+        "device_args": ["-d", "driver=airspy"],
+        # rx_sdr wants RTL-SDR-style gain as: -g <n>
+        "gain_args": ["-g", ""],
+        "gain_min": 0,
+        "gain_max": 50,
+        "gain_incr": 1,
+    },
+    "bladerf": {
+        "device_args": ["-d", "driver=bladerf"],
+        # rx_sdr wants RTL-SDR-style gain as: -g <n>
+        "gain_args": ["-g", ""],
+        "gain_min": 0,
+        "gain_max": 50,
+        "gain_incr": 1,
+    },
+    "hackrf": {
+        "device_args": ["-d", "driver=hackrf"],
+        # rx_sdr wants RTL-SDR-style gain as: -g <n>
+        "gain_args": ["-g", ""],
+        "gain_min": 0,
+        "gain_max": 50,
+        "gain_incr": 1,
+    },
+    "lime": {
+        "device_args": ["-d", "driver=lime"],
+        # rx_sdr wants RTL-SDR-style gain as: -g <n>
+        "gain_args": ["-g", ""],
+        "gain_min": 0,
+        "gain_max": 50,
+        "gain_incr": 1,
+    },
+    "miri": {
+        "device_args": ["-d", "driver=miri"],
+        # rx_sdr wants RTL-SDR-style gain as: -g <n>
+        "gain_args": ["-g", ""],
+        "gain_min": 0,
+        "gain_max": 50,
+        "gain_incr": 1,
+    },
     "rtlsdr": {
         "device_args": ["-d", "driver=rtlsdr"],
         # rx_sdr wants RTL-SDR gain as: -g <n>
+        "gain_args": ["-g", ""],
+        "gain_min": 0,
+        "gain_max": 50,
+        "gain_incr": 1,
+    },
+    "uhd": {
+        "device_args": ["-d", "driver=uhd"],
+        # rx_sdr wants RTL-SDR-style gain as: -g <n>
         "gain_args": ["-g", ""],
         "gain_min": 0,
         "gain_max": 50,
