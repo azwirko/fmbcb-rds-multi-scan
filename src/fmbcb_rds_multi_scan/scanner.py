@@ -2751,14 +2751,6 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--center",
-        help=(
-            "Optional SDR center frequency, e.g. 100M. "
-            "If omitted, the full FM band is scanned in bandwidth-sized chunks."
-        ),
-    )
-
-    parser.add_argument(
         "--bandwidth",
         required=True,
         help="rx_sdr sample rate / capture bandwidth, e.g. 5M. Must match the selected --rx-sdr profile sample_rate list.",
@@ -2778,31 +2770,19 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--min-pi-count",
-        type=int,
-        default=3,
-        help="Minimum number of times a PI code must be seen on a frequency before output. Default: 3",
-    )
-
-    parser.add_argument(
-        "--targets",
+        "--rx-sdr",
+        required=True,
+        choices=sorted(RX_SDR_PROFILES.keys()),
         help=(
-            "Optional comma-separated FM target list. "
-            "Example: --targets 99.5M,100.3M,101.1M. "
-            "Only valid when --center is supplied."
+            "SDR hardware profile to use for rx_sdr device selection. "
+            "Example: --rx-sdr sdrplay expands to -d driver=sdrplay."
         ),
     )
 
     parser.add_argument(
-        "--spacing",
-        default="200k",
-        help="FM channel spacing. Default: 200k",
-    )
-
-    parser.add_argument(
-        "--grid-base",
-        default="88.1M",
-        help="FM grid base frequency for single-center auto target generation. Default: 88.1M",
+        "--band-end",
+        default="107.9M",
+        help="Top FM broadcast channel for automatic band scan. Default: 107.9M",
     )
 
     parser.add_argument(
@@ -2812,9 +2792,24 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--band-end",
-        default="107.9M",
-        help="Top FM broadcast channel for automatic band scan. Default: 107.9M",
+        "--center",
+        help=(
+            "Optional SDR center frequency, e.g. 100M. "
+            "If omitted, the full FM band is scanned in bandwidth-sized chunks."
+        ),
+    )
+
+    parser.add_argument(
+        "--channel-rate",
+        default="500k",
+        help="Intermediate single-channel complex rate after decimation. Default: 500k",
+    )
+
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=65536,
+        help="Number of bytes read from rx_sdr per loop. Default: 262144",
     )
 
     parser.add_argument(
@@ -2828,62 +2823,37 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--channel-rate",
-        default="500k",
-        help="Intermediate single-channel complex rate after decimation. Default: 500k",
-    )
-
-    parser.add_argument(
-        "--redsea-rate",
-        default="166666",
-        help="MPX sample rate sent to redsea. Default: 171k",
-    )
-
-    parser.add_argument(
-        "--chunk-size",
-        type=int,
-        default=65536,
-        help="Number of bytes read from rx_sdr per loop. Default: 262144",
-    )
-
-    parser.add_argument(
-        "--no-echo",
-        action="store_true",
-        help="Do not print confirmed PI codes to terminal; only append JSONL output.",
-    )
-
-    parser.add_argument(
-        "--show-command",
-        action="store_true",
-        help="Print generated rx_sdr and csdr/redsea pipelines.",
-    )
-
-    parser.add_argument(
-        "--rx-sdr",
-        required=True,
-        choices=sorted(RX_SDR_PROFILES.keys()),
+        "--device-release-delay",
+        type=float,
+        default=2.0,
         help=(
-            "SDR hardware profile to use for rx_sdr device selection. "
-            "Example: --rx-sdr sdrplay expands to -d driver=sdrplay."
+            "Seconds to wait after each chunk before starting the next rx_sdr process. "
+            "Useful when the SDR device needs time to release. Default: 2.0"
         ),
     )
 
     parser.add_argument(
-        "--rx-gain",
-        type=int,
+        "--force-gain-calibration",
+        action="store_true",
         help=(
-            "Fixed SDR gain value using the selected --rx-sdr profile. "
-            "For --rx-sdr sdrplay this expands to -g RFGR=<value>, valid range 0–6. "
-            "If omitted, full-band mode can calibrate the best gain per chunk."
+            "Force automatic per-chunk gain calibration to rerun at startup and "
+            "overwrite the saved calibration entry for this SDR/bandwidth/chunk layout."
         ),
     )
 
     parser.add_argument(
-        "--skip-gain-calibration",
+        "--force-pi-update",
         action="store_true",
+        help="Force download and CSV regeneration of the PI-code database.",
+    )
+
+    parser.add_argument(
+        "--freq-match-tolerance",
+        type=float,
+        default=1000.0,
         help=(
-            "Skip automatic per-chunk gain calibration when --rx-gain is omitted. "
-            "If omitted and --rx-gain is not set, the app calibrates gain per chunk."
+            "Allowed Hz difference between decoded FM channel and database frequency. "
+            "Default: 1000 Hz."
         ),
     )
 
@@ -2893,6 +2863,15 @@ def main() -> int:
         help=(
             "Seconds to scan each gain during automatic gain calibration. "
             "Default: same as --duration."
+        ),
+    )
+
+    parser.add_argument(
+        "--gain-calibration-file",
+        default="rds_gain_calibration.json",
+        help=(
+            "JSON file used to save and reload automatic per-chunk gain calibration data. "
+            "Default: rds_gain_calibration.json"
         ),
     )
 
@@ -2907,38 +2886,22 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--force-gain-calibration",
+        "--grid-base",
+        default="88.1M",
+        help="FM grid base frequency for single-center auto target generation. Default: 88.1M",
+    )
+
+    parser.add_argument(
+        "--min-pi-count",
+        type=int,
+        default=3,
+        help="Minimum number of times a PI code must be seen on a frequency before output. Default: 3",
+    )
+
+    parser.add_argument(
+        "--no-echo",
         action="store_true",
-        help=(
-            "Force automatic per-chunk gain calibration to rerun at startup and "
-            "overwrite the saved calibration entry for this SDR/bandwidth/chunk layout."
-        ),
-    )
-
-    parser.add_argument(
-        "--gain-calibration-file",
-        default="rds_gain_calibration.json",
-        help=(
-            "JSON file used to save and reload automatic per-chunk gain calibration data. "
-            "Default: rds_gain_calibration.json"
-        ),
-    )
-
-    parser.add_argument(
-        "--rx-arg",
-        action="append",
-        default=[],
-        help=(
-            "Advanced extra argument to pass directly to rx_sdr. "
-            "Use --rx-sdr for device selection and --rx-gain for gain. "
-            "Use this only for additional rx_sdr options not modeled by the app."
-        ),
-    )
-
-    parser.add_argument(
-        "--pi-url",
-        default=PI_CODES_URL,
-        help=f"NRSC PI-code database URL. Default: {PI_CODES_URL}",
+        help="Do not print confirmed PI codes to terminal; only append JSONL output.",
     )
 
     parser.add_argument(
@@ -2960,32 +2923,36 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--skip-pi-update",
-        action="store_true",
-        help="Do not check/download the online PI-code database; use existing local CSV.",
+        "--pi-url",
+        default=PI_CODES_URL,
+        help=f"NRSC PI-code database URL. Default: {PI_CODES_URL}",
     )
 
     parser.add_argument(
-        "--force-pi-update",
-        action="store_true",
-        help="Force download and CSV regeneration of the PI-code database.",
+        "--redsea-rate",
+        default="166666",
+        help="MPX sample rate sent to redsea. Default: 171k",
     )
 
     parser.add_argument(
-        "--device-release-delay",
-        type=float,
-        default=2.0,
+        "--rx-arg",
+        action="append",
+        default=[],
         help=(
-            "Seconds to wait after each chunk before starting the next rx_sdr process. "
-            "Useful when the SDR device needs time to release. Default: 2.0"
+            "Advanced extra argument to pass directly to rx_sdr. "
+            "Use --rx-sdr for device selection and --rx-gain for gain. "
+            "Use this only for additional rx_sdr options not modeled by the app."
         ),
     )
 
     parser.add_argument(
-        "--rx-start-retries",
+        "--rx-gain",
         type=int,
-        default=3,
-        help="Number of times to retry starting rx_sdr if it exits immediately. Default: 3",
+        help=(
+            "Fixed SDR gain value using the selected --rx-sdr profile. "
+            "For --rx-sdr sdrplay this expands to -g RFGR=<value>, valid range 0–6. "
+            "If omitted, full-band mode can calibrate the best gain per chunk."
+        ),
     )
 
     parser.add_argument(
@@ -2996,12 +2963,45 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--freq-match-tolerance",
-        type=float,
-        default=1000.0,
+        "--rx-start-retries",
+        type=int,
+        default=3,
+        help="Number of times to retry starting rx_sdr if it exits immediately. Default: 3",
+    )
+
+    parser.add_argument(
+        "--show-command",
+        action="store_true",
+        help="Print generated rx_sdr and csdr/redsea pipelines.",
+    )
+
+    parser.add_argument(
+        "--skip-gain-calibration",
+        action="store_true",
         help=(
-            "Allowed Hz difference between decoded FM channel and database frequency. "
-            "Default: 1000 Hz."
+            "Skip automatic per-chunk gain calibration when --rx-gain is omitted. "
+            "If omitted and --rx-gain is not set, the app calibrates gain per chunk."
+        ),
+    )
+
+    parser.add_argument(
+        "--skip-pi-update",
+        action="store_true",
+        help="Do not check/download the online PI-code database; use existing local CSV.",
+    )
+
+    parser.add_argument(
+        "--spacing",
+        default="200k",
+        help="FM channel spacing. Default: 200k",
+    )
+
+    parser.add_argument(
+        "--targets",
+        help=(
+            "Optional comma-separated FM target list. "
+            "Example: --targets 99.5M,100.3M,101.1M. "
+            "Only valid when --center is supplied."
         ),
     )
 
@@ -3015,10 +3015,16 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--upload-timeout",
+        "--upload-debug",
+        action="store_true",
+        help="Print each RabbitEars single-record JSON payload before compression.",
+    )
+
+    parser.add_argument(
+        "--upload-per-record-delay",
         type=float,
-        default=20.0,
-        help="RabbitEars upload timeout in seconds. Default: 20.",
+        default=0.5,
+        help="Delay in seconds between individual RabbitEars record uploads. Default: 0.5.",
     )
 
     parser.add_argument(
@@ -3036,16 +3042,10 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--upload-debug",
-        action="store_true",
-        help="Print each RabbitEars single-record JSON payload before compression.",
-    )
-
-    parser.add_argument(
-        "--upload-per-record-delay",
+        "--upload-timeout",
         type=float,
-        default=0.5,
-        help="Delay in seconds between individual RabbitEars record uploads. Default: 0.5.",
+        default=20.0,
+        help="RabbitEars upload timeout in seconds. Default: 20.",
     )
 
     args = parser.parse_args()
