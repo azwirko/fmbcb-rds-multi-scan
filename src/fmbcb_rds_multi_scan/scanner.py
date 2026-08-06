@@ -921,6 +921,7 @@ def terminate_process_tree(proc: Optional[subprocess.Popen], name: str = "proces
 RX_SDR_PROFILES = {
     "sdrplay": {
         "device_args": ["-d", "driver=sdrplay"],
+        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
         # rx_sdr wants SDRplay gain as: -g RFGR=<n>
         "gain_args": ["-g", "RFGR="],
         "gain_min": 0,
@@ -929,6 +930,7 @@ RX_SDR_PROFILES = {
     },
     "airspy": {
         "device_args": ["-d", "driver=airspy"],
+        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
         # rx_sdr wants RTL-SDR-style gain as: -g <n>
         "gain_args": ["-g", ""],
         "gain_min": 0,
@@ -937,6 +939,7 @@ RX_SDR_PROFILES = {
     },
     "bladerf": {
         "device_args": ["-d", "driver=bladerf"],
+        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
         # rx_sdr wants RTL-SDR-style gain as: -g <n>
         "gain_args": ["-g", ""],
         "gain_min": 0,
@@ -945,6 +948,7 @@ RX_SDR_PROFILES = {
     },
     "hackrf": {
         "device_args": ["-d", "driver=hackrf"],
+        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
         # rx_sdr wants RTL-SDR-style gain as: -g <n>
         "gain_args": ["-g", ""],
         "gain_min": 0,
@@ -953,6 +957,7 @@ RX_SDR_PROFILES = {
     },
     "lime": {
         "device_args": ["-d", "driver=lime"],
+        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
         # rx_sdr wants RTL-SDR-style gain as: -g <n>
         "gain_args": ["-g", ""],
         "gain_min": 0,
@@ -961,6 +966,7 @@ RX_SDR_PROFILES = {
     },
     "miri": {
         "device_args": ["-d", "driver=miri"],
+        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
         # rx_sdr wants RTL-SDR-style gain as: -g <n>
         "gain_args": ["-g", ""],
         "gain_min": 0,
@@ -969,6 +975,7 @@ RX_SDR_PROFILES = {
     },
     "rtlsdr": {
         "device_args": ["-d", "driver=rtlsdr"],
+        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
         # rx_sdr wants RTL-SDR gain as: -g <n>
         "gain_args": ["-g", ""],
         "gain_min": 0,
@@ -977,6 +984,7 @@ RX_SDR_PROFILES = {
     },
     "uhd": {
         "device_args": ["-d", "driver=uhd"],
+        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
         # rx_sdr wants RTL-SDR-style gain as: -g <n>
         "gain_args": ["-g", ""],
         "gain_min": 0,
@@ -1063,6 +1071,57 @@ def build_rx_sdr_hardware_args_for_gain(args, gain_value: Optional[int]) -> List
         rx_args.extend(args.rx_arg)
 
     return rx_args
+
+
+def get_sample_rates_for_profile(profile: Dict, rx_sdr_name: str) -> List[int]:
+    """Return the allowed sample rates for an rx_sdr profile as integer Hz."""
+    sample_rates = profile.get("sample_rate")
+
+    if sample_rates is None:
+        return []
+
+    if not isinstance(sample_rates, list) or not all(isinstance(item, str) for item in sample_rates):
+        raise ValueError(
+            f"Invalid sample_rate profile for --rx-sdr {rx_sdr_name}; "
+            "expected a list of strings."
+        )
+
+    parsed_rates: List[int] = []
+    for sample_rate in sample_rates:
+        try:
+            parsed_rates.append(int(round(parse_freq(sample_rate))))
+        except ValueError as e:
+            raise ValueError(
+                f"Invalid sample_rate value for --rx-sdr {rx_sdr_name}: {sample_rate}"
+            ) from e
+
+    return parsed_rates
+
+
+def validate_rx_sdr_sample_rate(args, bandwidth_hz: float) -> None:
+    """Validate --bandwidth against the selected rx_sdr profile sample rates."""
+    rx_sdr_name = args.rx_sdr.strip().lower() if getattr(args, "rx_sdr", None) else ""
+
+    if not rx_sdr_name:
+        return
+
+    profile = RX_SDR_PROFILES.get(rx_sdr_name)
+
+    if profile is None:
+        supported = ", ".join(sorted(RX_SDR_PROFILES.keys()))
+        raise ValueError(f"Unsupported --rx-sdr '{args.rx_sdr}'. Supported values: {supported}")
+
+    allowed_rates = get_sample_rates_for_profile(profile, rx_sdr_name)
+    if not allowed_rates:
+        return
+
+    requested_rate = int(round(bandwidth_hz))
+    if requested_rate not in allowed_rates:
+        allowed_values = ", ".join(profile["sample_rate"])
+        raise ValueError(
+            f"--bandwidth {args.bandwidth} is not supported for --rx-sdr {rx_sdr_name}. "
+            f"Allowed exact sample rates: {allowed_values}"
+        )
 
 
 def get_gain_values_for_profile(args) -> List[int]:
@@ -2702,7 +2761,7 @@ def main() -> int:
     parser.add_argument(
         "--bandwidth",
         required=True,
-        help="rx_sdr sample rate / capture bandwidth, e.g. 5M",
+        help="rx_sdr sample rate / capture bandwidth, e.g. 5M. Must match the selected --rx-sdr profile sample_rate list.",
     )
 
     parser.add_argument(
@@ -2801,6 +2860,7 @@ def main() -> int:
 
     parser.add_argument(
         "--rx-sdr",
+        required=True,
         choices=sorted(RX_SDR_PROFILES.keys()),
         help=(
             "SDR hardware profile to use for rx_sdr device selection. "
@@ -3023,6 +3083,12 @@ def main() -> int:
         return 2
 
     bandwidth_hz = parse_freq(args.bandwidth)
+    try:
+        validate_rx_sdr_sample_rate(args, bandwidth_hz)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 2
+
     spacing_hz = parse_freq(args.spacing)
     channel_rate_hz = parse_freq(args.channel_rate)
     redsea_rate_hz = parse_freq(args.redsea_rate)

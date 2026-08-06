@@ -132,6 +132,9 @@ make package
 - `install-info.env` records the installed app version, source commit, install
   paths, native dependency repos/refs, SDRplay installer settings, and native
   checkout commits when present.
+- `--rx-sdr` profiles validate `--bandwidth` against their allowed sample-rate
+  list. Current profiles accept exact matches for `2m`, `3m`, `4m`, `5m`, or
+  `6m`.
 - The `rx_sdr` source repo is configurable through `FMB_RX_TOOLS_REPO` because
   deployments may use different forks/builds of the SoapySDR `rx_sdr` tool.
 
