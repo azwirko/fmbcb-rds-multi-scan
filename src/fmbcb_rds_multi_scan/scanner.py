@@ -930,12 +930,12 @@ RX_SDR_PROFILES = {
     },
     "airspy": {
         "device_args": ["-d", "driver=airspy"],
-        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
+        "sample_rate": ["3m", "6m"],
         # rx_sdr wants RTL-SDR-style gain as: -g <n>
         "gain_args": ["-g", ""],
         "gain_min": 0,
-        "gain_max": 50,
-        "gain_incr": 1,
+        "gain_max": 45,
+        "gain_incr": 5,
     },
     "bladerf": {
         "device_args": ["-d", "driver=bladerf"],
@@ -1138,7 +1138,11 @@ def get_gain_values_for_profile(args) -> List[int]:
 
     gain_min = profile.get("gain_min")
     gain_max = profile.get("gain_max")
-    gain_incr = profile.get("gain_incr", 1)
+    gain_incr = (
+        args.gain_calibration_incr
+        if getattr(args, "gain_calibration_incr", None) is not None
+        else profile.get("gain_incr", 1)
+    )
 
     if gain_min is None or gain_max is None:
         raise ValueError(f"--rx-sdr {rx_sdr_name} does not define a gain range.")
@@ -2503,6 +2507,14 @@ def calibrate_chunk_gain(
             best_raw_decode_count = raw_decode_count
             best_gain = gain
 
+    if best_unique_count == 0 and best_raw_decode_count == 0:
+        best_gain = max(gain_values)
+        print(
+            f"  No stations detected for any tested gain; "
+            f"using maximum tested gain {best_gain} for chunk {chunk_index}.",
+            file=sys.stderr,
+        )
+
     print(
         f"Selected gain {best_gain} for chunk {chunk_index} "
         f"with {best_unique_count} unique validated PI/frequency pair(s) "
@@ -2876,6 +2888,15 @@ def main() -> int:
     )
 
     parser.add_argument(
+        "--gain-calibration-incr",
+        type=int,
+        help=(
+            "Override the selected --rx-sdr profile gain_incr during automatic "
+            "initial or forced gain calibration."
+        ),
+    )
+
+    parser.add_argument(
         "--gain-calibration-min-count",
         type=int,
         help=(
@@ -3064,6 +3085,10 @@ def main() -> int:
 
     if args.gain_calibration_duration is not None and args.gain_calibration_duration <= 0:
         print("Error: --gain-calibration-duration must be greater than zero.", file=sys.stderr)
+        return 2
+
+    if args.gain_calibration_incr is not None and args.gain_calibration_incr <= 0:
+        print("Error: --gain-calibration-incr must be greater than zero.", file=sys.stderr)
         return 2
 
     if args.gain_calibration_min_count is not None and args.gain_calibration_min_count <= 0:
