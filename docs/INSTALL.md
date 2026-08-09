@@ -59,13 +59,18 @@ Required package groups:
 - Python: `python3`, `python3-venv`, `python3-pip`, `python3-dev`
 - Build: `git`, `build-essential`, `make`, `cmake`, `pkg-config`, `meson`, `ninja-build`
 - SDR/DSP libraries: `libusb-1.0-0-dev`, `libfftw3-dev`, `libsndfile1-dev`, `libliquid-dev`
+- Soapy module dependencies: `libairspyhf-dev`, `libiio-dev`, `libad9361-dev`, `libhidapi-dev`, `libasound2-dev`
+- LimeSDR: `limesuite`, `limesuite-udev`, `liblimesuite-dev`
 - SoapySDR development/runtime/modules: `soapysdr-tools`, `libsoapysdr-dev`, `soapysdr-module-all`
-- Utilities: `usbutils`, `curl`, `ca-certificates`
+- Utilities: `usbutils`, `curl`, `ca-certificates`, `software-properties-common`
 
 The installer installs distro SoapySDR tools, development files, and the
 `soapysdr-module-all` bundle. It does not build SoapySDR itself. After these
-packages are installed, it checks SDRplay API service support and builds the
-SoapySDRPlay3 hardware module from source when missing. If the full APT package
+packages are installed, it enables Ubuntu `universe`, installs LimeSuite and
+its udev/development packages, and builds the SoapyAirspyHF, SoapyPlutoSDR, and
+SoapyFCDPP modules from source when missing. It also checks SDRplay API service
+support and builds the SoapySDRPlay3 hardware module from source when missing.
+If the full APT package
 step is skipped but a source build is still needed, the installer still installs
 missing compile prerequisites through the standard Debian/Ubuntu APT process.
 Use `--skip-build-prereq-apt` only when you want missing compile tools to be a
@@ -111,6 +116,12 @@ to the profile JSON. `gain_incr` may be an integer or `"auto"`; `"auto"` picks
 a step that tests no more than 9 gains per chunk while still including the
 maximum gain.
 
+For automatic calibration, the scanner uses one less than the maximum gain
+reported by `SoapySDRUtil`, because some drivers report an upper endpoint that
+the hardware does not accept. This adjustment applies only to probed ranges
+used for calibration; explicit `gain_min` and `gain_max` profile overrides are
+used as written.
+
 ## Installed source snapshot
 
 The installer does not copy the entire local working tree into `/opt`. It copies
@@ -142,6 +153,36 @@ ls -l dist/
 The package target writes `dist/fmbcb-rds-multi-scan-<version>.tar.gz` and a
 matching `.sha256` file. The archive contains the installer scripts, Python
 package, docs, examples, config samples, CI workflow, and project metadata.
+
+## Additional SoapySDR modules
+
+The installer checks `SoapySDRUtil --info` for these modules and builds any
+missing module from its upstream repository under `--build-root`, installing it
+into `/usr/local`:
+
+- `SoapyAirspyHF` for Airspy HF+ (`airspyhf`)
+- `SoapyPlutoSDR` for PlutoSDR (`plutosdr`)
+- `SoapyFCDPP` for FUNcube Dongle Pro+ (`fcdpp`)
+
+LimeSDR support is installed from Ubuntu packages. On Ubuntu, the installer
+enables `universe`, installs `limesuite`, `limesuite-udev`, and
+`liblimesuite-dev`, then runs:
+
+```bash
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+The module builds are idempotent and reuse their source checkouts. To skip these
+three source builds on a system that does not need the hardware, use:
+
+```bash
+sudo ./install.sh --skip-soapy-extra-build
+```
+
+Override a module repository or ref with its `FMB_SOAPY_*` environment variables
+shown by `sudo ./install.sh --help`. The final `SoapySDRUtil --info` output lists
+the loaded module support.
 
 ## SDRplay
 
