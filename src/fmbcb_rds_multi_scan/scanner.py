@@ -1105,9 +1105,28 @@ def get_probed_gain_range(profile: Dict) -> Optional[Tuple[int, int]]:
     return extract_soapy_gain_range(output, gain_names_for_profile(profile))
 
 
-def get_profile_gain_range(profile: Dict, rx_sdr_name: str, require_range: bool = False) -> Optional[Tuple[int, int]]:
+def get_profile_gain_range(
+    profile: Dict,
+    rx_sdr_name: str,
+    require_range: bool = False,
+    calibration: bool = False,
+) -> Optional[Tuple[int, int]]:
     probed_range = get_probed_gain_range(profile)
     if probed_range is not None:
+        if calibration:
+            gain_min, gain_max = probed_range
+            adjusted_gain_max = gain_max - 1
+            if adjusted_gain_max < gain_min:
+                raise ValueError(
+                    f"SoapySDRUtil reported an unusable calibration gain range for "
+                    f"--rx-sdr {rx_sdr_name}: {gain_min}..{gain_max}."
+                )
+            print(
+                f"Gain calibration: using probed maximum {adjusted_gain_max} "
+                f"instead of reported maximum {gain_max} for {rx_sdr_name}.",
+                file=sys.stderr,
+            )
+            return gain_min, adjusted_gain_max
         return probed_range
 
     gain_min = profile.get("gain_min")
@@ -1431,7 +1450,12 @@ def get_gain_values_for_profile(args) -> List[int]:
     if profile is None:
         raise ValueError(f"Unsupported --rx-sdr '{args.rx_sdr}'.")
 
-    gain_min, gain_max = get_profile_gain_range(profile, rx_sdr_name, require_range=True)
+    gain_min, gain_max = get_profile_gain_range(
+        profile,
+        rx_sdr_name,
+        require_range=True,
+        calibration=True,
+    )
 
     if getattr(args, "gain_calibration_incr", None) is not None:
         gain_incr = int(args.gain_calibration_incr)

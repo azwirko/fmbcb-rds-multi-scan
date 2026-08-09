@@ -22,8 +22,9 @@ sudo -E ./install.sh --force-build
 
 ## Source build prerequisites are missing
 
-When `rx_sdr`, `csdr`, `redsea`, or SoapySDRPlay3 must be built from source, the
-installer checks for compile prerequisites such as `git`, `build-essential`,
+When `rx_sdr`, `csdr`, `redsea`, SoapySDRPlay3, SoapyAirspyHF, SoapyPlutoSDR,
+or SoapyFCDPP must be built from source, the installer checks for compile
+prerequisites such as `git`, `build-essential`,
 `cmake`, `make`, `pkg-config`, `meson`, `ninja-build`, and related development
 headers. Missing packages are installed automatically through APT.
 
@@ -85,6 +86,36 @@ powered hardware. If the service is active and `SoapySDRUtil --info` lists an
 SDRplay module, reconnect the receiver and check USB permissions before
 rebuilding.
 
+## Airspy HF+, PlutoSDR, FCDPP, or LimeSDR is not found
+
+The installer builds the Airspy HF+, PlutoSDR, and FUNcube Pro+ SoapySDR modules
+when their drivers are absent from `SoapySDRUtil --info`. It installs LimeSDR
+through LimeSuite packages and reloads the udev rules. Check the result with:
+
+```bash
+SoapySDRUtil --info
+SoapySDRUtil --find
+SoapySDRUtil --probe="driver=airspyhf"
+SoapySDRUtil --probe="driver=plutosdr"
+SoapySDRUtil --probe="driver=fcdpp"
+SoapySDRUtil --probe="driver=lime"
+```
+
+For LimeSDR, verify that `limesuite`, `limesuite-udev`, and `liblimesuite-dev`
+are installed, then reload the rules:
+
+```bash
+sudo add-apt-repository universe
+sudo apt update
+sudo apt install limesuite limesuite-udev liblimesuite-dev
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+If a source module fails to build, rerun without
+`--skip-build-prereq-apt`; use `--skip-soapy-extra-build` only when the extra
+source modules are intentionally not required.
+
 ## Redsea builds but runtime cannot find shared libraries
 
 Run:
@@ -120,3 +151,5 @@ If you installed with a custom `FMB_PREFIX` or `--prefix`, read
 no usable gain range exists, connect the SDR and rerun `--probe-rx-sdr`; if the
 driver still does not report a gain range, add `gain_min` and `gain_max` to the
 profile in `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json`.
+During automatic calibration, the scanner reduces a probed maximum gain by one
+because some drivers report an endpoint that the hardware does not accept.

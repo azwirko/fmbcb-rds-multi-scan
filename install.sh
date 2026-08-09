@@ -31,7 +31,14 @@ SDRPLAY_API_INSTALLER_OVERRIDE="${FMB_SDRPLAY_API_INSTALLER:-}"
 SDRPLAY_API_SERVICE="${FMB_SDRPLAY_API_SERVICE:-sdrplay}"
 SOAPY_SDRPLAY_REPO="${FMB_SOAPY_SDRPLAY_REPO:-https://github.com/pothosware/SoapySDRPlay3.git}"
 SOAPY_SDRPLAY_REF="${FMB_SOAPY_SDRPLAY_REF:-}"
+SOAPY_AIRSPYHF_REPO="${FMB_SOAPY_AIRSPYHF_REPO:-https://github.com/pothosware/SoapyAirspyHF.git}"
+SOAPY_AIRSPYHF_REF="${FMB_SOAPY_AIRSPYHF_REF:-}"
+SOAPY_PLUTOSDR_REPO="${FMB_SOAPY_PLUTOSDR_REPO:-https://github.com/pothosware/SoapyPlutoSDR.git}"
+SOAPY_PLUTOSDR_REF="${FMB_SOAPY_PLUTOSDR_REF:-}"
+SOAPY_FCDPP_REPO="${FMB_SOAPY_FCDPP_REPO:-https://github.com/pothosware/SoapyFCDPP.git}"
+SOAPY_FCDPP_REF="${FMB_SOAPY_FCDPP_REF:-}"
 SKIP_SDRPLAY="${FMB_SKIP_SDRPLAY:-0}"
+SKIP_SOAPY_EXTRA_BUILD="${FMB_SKIP_SOAPY_EXTRA_BUILD:-0}"
 SKIP_SDRPLAY_API="${FMB_SKIP_SDRPLAY_API:-0}"
 SKIP_SOAPY_SDRPLAY_BUILD="${FMB_SKIP_SOAPY_SDRPLAY_BUILD:-0}"
 SKIP_BUILD_PREREQ_APT="${FMB_SKIP_BUILD_PREREQ_APT:-0}"
@@ -43,8 +50,9 @@ Usage: sudo ./install.sh [options]
 
 Install ${APP_NAME}, create a Python virtual environment, install wrappers, and
 build missing native SDR tools when needed. Distro SoapySDR tools, development
-files, and module bundle are installed through APT. SDRplay API 3.x and
-SoapySDRPlay3 are checked and installed when missing.
+files, and module bundle are installed through APT. SDRplay API 3.x,
+SoapySDRPlay3, SoapyAirspyHF, SoapyPlutoSDR, and SoapyFCDPP are checked and
+installed or built when missing.
 
 Options:
   --prefix PATH              Install app under PATH [${DEFAULT_PREFIX}]
@@ -60,6 +68,7 @@ Options:
   --skip-sdrplay             Do not install SDRplay API or SoapySDRPlay3
   --skip-sdrplay-api         Do not install/start the SDRplay API service
   --skip-soapy-sdrplay-build Do not build SoapySDRPlay3 from source
+  --skip-soapy-extra-build  Do not build AirspyHF, PlutoSDR, or FCDPP modules
   --skip-build-prereq-apt   Do not auto-install source-build prerequisites
   --install-rtl-blacklist    Install a modprobe blacklist for DVB RTL modules
   --dry-run, --check         Validate options and print the install plan
@@ -72,7 +81,10 @@ Environment overrides:
   FMB_REDSEA_REPO, FMB_REDSEA_REF
   FMB_SDRPLAY_API_URL, FMB_SDRPLAY_API_INSTALLER, FMB_SDRPLAY_API_SERVICE
   FMB_SOAPY_SDRPLAY_REPO, FMB_SOAPY_SDRPLAY_REF
-  FMB_SKIP_BUILD_PREREQ_APT
+  FMB_SOAPY_AIRSPYHF_REPO, FMB_SOAPY_AIRSPYHF_REF
+  FMB_SOAPY_PLUTOSDR_REPO, FMB_SOAPY_PLUTOSDR_REF
+  FMB_SOAPY_FCDPP_REPO, FMB_SOAPY_FCDPP_REF
+  FMB_SKIP_SOAPY_EXTRA_BUILD, FMB_SKIP_BUILD_PREREQ_APT
 
 Notes:
   The SDRplay API vendor installer may prompt for EULA acceptance. Press Y only
@@ -131,6 +143,7 @@ while [[ $# -gt 0 ]]; do
     --skip-sdrplay) SKIP_SDRPLAY=1; shift ;;
     --skip-sdrplay-api) SKIP_SDRPLAY_API=1; shift ;;
     --skip-soapy-sdrplay-build) SKIP_SOAPY_SDRPLAY_BUILD=1; shift ;;
+    --skip-soapy-extra-build) SKIP_SOAPY_EXTRA_BUILD=1; shift ;;
     --skip-build-prereq-apt) SKIP_BUILD_PREREQ_APT=1; shift ;;
     --install-rtl-blacklist) INSTALL_RTL_BLACKLIST=1; shift ;;
     --dry-run|--check) DRY_RUN=1; shift ;;
@@ -159,8 +172,11 @@ require_cmd() { have_cmd "$1" || die "Required command not found: $1"; }
 
 APT_REQUIRED_PACKAGES=(
   ca-certificates curl git build-essential make cmake pkg-config
+  software-properties-common
   python3 python3-venv python3-pip python3-dev
   libusb-1.0-0-dev libfftw3-dev libsndfile1-dev libliquid-dev
+  libairspyhf-dev libiio-dev libad9361-dev libhidapi-dev libasound2-dev
+  limesuite limesuite-udev liblimesuite-dev
   meson ninja-build nlohmann-json3-dev
   soapysdr-tools libsoapysdr-dev soapysdr-module-all usbutils
 )
@@ -169,7 +185,10 @@ APT_OPTIONAL_PACKAGES=()
 
 APT_BUILD_PREREQ_PACKAGES=(
   ca-certificates curl git build-essential make cmake pkg-config
+  software-properties-common
   libusb-1.0-0-dev libfftw3-dev libsndfile1-dev libliquid-dev
+  libairspyhf-dev libiio-dev libad9361-dev libhidapi-dev libasound2-dev
+  limesuite limesuite-udev liblimesuite-dev
   meson ninja-build nlohmann-json3-dev libsoapysdr-dev soapysdr-tools
 )
 
@@ -205,6 +224,22 @@ write_env_kv() {
   local key="$1"
   local value="${2-}"
   printf '%s=%q\n' "$key" "$value" >> "$INSTALL_INFO_FILE"
+}
+
+enable_ubuntu_universe() {
+  [[ -r /etc/os-release ]] || return 0
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  [[ "${ID:-}" == "ubuntu" ]] || return 0
+
+  if ! have_cmd add-apt-repository; then
+    apt_update_once
+    apt-get install -y --no-install-recommends software-properties-common
+  fi
+
+  if add-apt-repository -y universe >/dev/null 2>&1; then
+    APT_UPDATED=0
+  fi
 }
 
 apt_package_available() {
@@ -278,6 +313,17 @@ print_sdrplay_plan() {
   fi
 }
 
+print_soapy_extra_plan() {
+  printf '  SoapyAirspyHF:      %s\n' "$SOAPY_AIRSPYHF_REPO"
+  printf '  SoapyPlutoSDR:      %s\n' "$SOAPY_PLUTOSDR_REPO"
+  printf '  SoapyFCDPP:         %s\n' "$SOAPY_FCDPP_REPO"
+  if [[ "$SKIP_SOAPY_EXTRA_BUILD" == "1" ]]; then
+    printf '    action: skip extra SoapySDR module source builds\n'
+  else
+    printf '    action: check loaded modules, build each missing module from source\n'
+  fi
+}
+
 print_dry_run() {
   cat <<EOF
 ${APP_NAME} install preflight
@@ -301,6 +347,7 @@ Toggles:
   skip SDRplay:         ${SKIP_SDRPLAY}
   skip SDRplay API:     ${SKIP_SDRPLAY_API}
   skip SoapySDRPlay3:   ${SKIP_SOAPY_SDRPLAY_BUILD}
+  skip extra Soapy modules: ${SKIP_SOAPY_EXTRA_BUILD}
   skip build prereq APT: ${SKIP_BUILD_PREREQ_APT}
 
 APT:
@@ -328,6 +375,7 @@ EOF
 SDRplay support:
 EOF
   print_sdrplay_plan
+  print_soapy_extra_plan
 
   cat <<EOF
 
@@ -383,6 +431,7 @@ install_missing_apt_packages() {
   local missing=()
   local pkg
 
+  enable_ubuntu_universe
   for pkg in "${requested[@]}"; do
     if ! apt_package_available "$pkg"; then
       missing+=("$pkg")
@@ -453,6 +502,8 @@ install_apt_deps() {
 
   export DEBIAN_FRONTEND=noninteractive
   apt_update_once
+  enable_ubuntu_universe
+  apt_update_once
 
   log "Installing required Debian/Ubuntu packages"
   apt_install_required "${APT_REQUIRED_PACKAGES[@]}"
@@ -461,6 +512,13 @@ install_apt_deps() {
     log "Installing optional Debian/Ubuntu packages when available"
     apt_install_optional "${APT_OPTIONAL_PACKAGES[@]}"
   fi
+}
+
+reload_limesdr_udev_rules() {
+  have_cmd udevadm || { warn "udevadm is not installed; cannot reload LimeSDR rules"; return; }
+  log "Reloading LimeSDR udev rules"
+  udevadm control --reload-rules
+  udevadm trigger
 }
 
 sdrplay_service_unit_exists() {
@@ -544,6 +602,49 @@ install_sdrplay_support() {
   build_soapy_sdrplay
 }
 
+soapy_module_loaded() {
+  local module_name="$1"
+  have_cmd SoapySDRUtil || return 1
+  SoapySDRUtil --info 2>/dev/null | grep -Eiq "${module_name}"
+}
+
+build_soapy_module() {
+  local display_name="$1"
+  local module_name="$2"
+  local repo="$3"
+  local ref="$4"
+  local source_dir="$5"
+
+  if soapy_module_loaded "$module_name" && [[ "$FORCE_BUILD" != "1" ]]; then
+    log "${display_name} module already loaded by SoapySDR"
+    return
+  fi
+
+  ensure_source_build_prereqs "${display_name} source build"
+  require_cmd SoapySDRUtil
+  require_cmd git
+  require_cmd cmake
+
+  log "Building ${display_name}"
+  clone_or_update "$repo" "$ref" "$source_dir"
+  cmake -S "$source_dir" -B "$source_dir/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local
+  cmake --build "$source_dir/build" --parallel "$(nproc)"
+  cmake --install "$source_dir/build"
+  ldconfig || true
+
+  if ! soapy_module_loaded "$module_name"; then
+    die "${display_name} installed, but SoapySDRUtil --info does not show module '${module_name}'."
+  fi
+}
+
+build_soapy_extra_modules() {
+  [[ "$SKIP_SOAPY_EXTRA_BUILD" == "1" ]] && { warn "Skipping extra SoapySDR module builds"; return; }
+
+  build_soapy_module "SoapyAirspyHF" "airspyhf" "$SOAPY_AIRSPYHF_REPO" "$SOAPY_AIRSPYHF_REF" "${BUILD_ROOT}/SoapyAirspyHF"
+  build_soapy_module "SoapyPlutoSDR" "plutosdr" "$SOAPY_PLUTOSDR_REPO" "$SOAPY_PLUTOSDR_REF" "${BUILD_ROOT}/SoapyPlutoSDR"
+  build_soapy_module "SoapyFCDPP" "fcdpp" "$SOAPY_FCDPP_REPO" "$SOAPY_FCDPP_REF" "${BUILD_ROOT}/SoapyFCDPP"
+}
+
 print_soapy_support() {
   if ! have_cmd SoapySDRUtil; then
     warn "SoapySDRUtil is not installed; cannot print loaded SDR module support."
@@ -552,6 +653,14 @@ print_soapy_support() {
 
   log "Loaded SoapySDR module support"
   SoapySDRUtil --info || warn "SoapySDRUtil --info failed."
+  local module_name
+  for module_name in airspyhf plutosdr fcdpp lime; do
+    if soapy_module_loaded "$module_name"; then
+      log "SoapySDR module loaded: ${module_name}"
+    else
+      warn "SoapySDR module not reported by SoapySDRUtil: ${module_name}"
+    fi
+  done
 
   log "Detected SoapySDR devices"
   SoapySDRUtil --find || warn "SoapySDRUtil --find did not detect devices."
@@ -711,6 +820,15 @@ PYAPPVERSION
   else
     write_env_kv "SOAPY_SDRPLAY_MODULE_LOADED" "no"
   fi
+  write_env_kv "SOAPY_AIRSPYHF_REPO" "$SOAPY_AIRSPYHF_REPO"
+  write_env_kv "SOAPY_AIRSPYHF_REF" "$SOAPY_AIRSPYHF_REF"
+  write_env_kv "SOAPY_AIRSPYHF_COMMIT" "$(git_commit_for_dir "${BUILD_ROOT}/SoapyAirspyHF")"
+  write_env_kv "SOAPY_PLUTOSDR_REPO" "$SOAPY_PLUTOSDR_REPO"
+  write_env_kv "SOAPY_PLUTOSDR_REF" "$SOAPY_PLUTOSDR_REF"
+  write_env_kv "SOAPY_PLUTOSDR_COMMIT" "$(git_commit_for_dir "${BUILD_ROOT}/SoapyPlutoSDR")"
+  write_env_kv "SOAPY_FCDPP_REPO" "$SOAPY_FCDPP_REPO"
+  write_env_kv "SOAPY_FCDPP_REF" "$SOAPY_FCDPP_REF"
+  write_env_kv "SOAPY_FCDPP_COMMIT" "$(git_commit_for_dir "${BUILD_ROOT}/SoapyFCDPP")"
   write_env_kv "RX_SDR_COMMAND" "$(command -v rx_sdr || true)"
   write_env_kv "CSDR_COMMAND" "$(command -v csdr || true)"
   write_env_kv "REDSEA_COMMAND" "$(command -v redsea || true)"
@@ -744,8 +862,10 @@ main() {
   fi
 
   install_apt_deps
+  reload_limesdr_udev_rules
   mkdir -p "$BUILD_ROOT"
   install_sdrplay_support
+  build_soapy_extra_modules
   build_rx_sdr
   build_csdr
   build_redsea

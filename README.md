@@ -9,6 +9,8 @@ package. The installer:
 
 - installs Debian/Ubuntu build/runtime packages when available;
 - installs distro SoapySDR tools, development files, and `soapysdr-module-all`;
+- enables Ubuntu `universe` and installs LimeSuite support and udev rules;
+- builds missing SoapyAirspyHF, SoapyPlutoSDR, and SoapyFCDPP modules;
 - checks SDRplay API 3.x service support and builds SoapySDRPlay3 when needed;
 - installs missing compile prerequisites before source builds;
 - builds and installs missing `rx_sdr`, `csdr`, and `redsea` tools as needed;
@@ -63,6 +65,9 @@ and resolve to a concrete profile when possible. Receiver profiles are stored in
 local edits. Gain ranges are probed from `SoapySDRUtil` when possible, and
 automatic calibration uses an `auto` gain step that tests no more than 9 gain
 values per chunk.
+For automatic calibration, a probed maximum is reduced by one because some
+drivers report an upper endpoint that the hardware does not accept; explicit
+profile overrides are used as written.
 
 ```bash
 fmbcb-rds-multi-scan \
