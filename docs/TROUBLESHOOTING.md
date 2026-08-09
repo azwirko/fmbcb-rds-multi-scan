@@ -70,8 +70,15 @@ systemctl status sdrplay --no-pager
 SoapySDRUtil --info
 SoapySDRUtil --find=sdrplay
 SoapySDRUtil --probe="driver=sdrplay"
+fmbcb-rds-multi-scan --list-rx-sdr
+fmbcb-rds-multi-scan --probe-rx-sdr
 fmbcb-rds-env-check
 ```
+
+If detection succeeds, use the concrete profile reported by
+`fmbcb-rds-multi-scan --probe-rx-sdr`, such as `sdrplay-rsp1a` or
+`sdrplay-rspdx`. The `sdrplay` and `auto` profile names depend on live
+SoapySDR probing and connected hardware.
 
 `SoapySDRUtil --find=sdrplay` and `--probe="driver=sdrplay"` require connected,
 powered hardware. If the service is active and `SoapySDRUtil --info` lists an
@@ -103,7 +110,13 @@ When an install or runtime environment problem is not obvious, include:
 ```bash
 fmbcb-rds-env-check
 cat /opt/fmbcb-rds-multi-scan/install-info.env
+cat /etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json
+fmbcb-rds-multi-scan --list-rx-sdr
+fmbcb-rds-multi-scan --probe-rx-sdr
 ```
 
 If you installed with a custom `FMB_PREFIX` or `--prefix`, read
-`install-info.env` from that prefix instead.
+`install-info.env` from that prefix instead. If automatic gain calibration says
+no usable gain range exists, connect the SDR and rerun `--probe-rx-sdr`; if the
+driver still does not report a gain range, add `gain_min` and `gain_max` to the
+profile in `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json`.

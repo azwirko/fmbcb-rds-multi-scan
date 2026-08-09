@@ -91,8 +91,25 @@ plan without requiring root and without changing the system:
 
 The preflight output includes install paths, APT package groups, SDRplay API and
 SoapySDRPlay3 actions, native tool build decisions, configured source
-repositories/refs, wrapper paths, and whether full APT, build-prerequisite APT,
-or native builds are skipped.
+repositories/refs, wrapper paths, the editable rx_sdr profile config path, and
+whether full APT, build-prerequisite APT, or native builds are skipped.
+
+## Receiver profile config
+
+The installer seeds `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json` from
+`config/rx_sdr_profiles.json` when the file is missing. It does not overwrite
+an existing file, so local SDR profile edits survive reinstall. Use
+`--config-dir PATH` or `FMB_CONFIG_DIR` to install the editable config somewhere
+else. The installed wrapper exports `FMB_RX_SDR_PROFILES` to point the scanner at
+the configured file.
+
+Profile gain ranges are intentionally not hard-coded in the shipped defaults.
+When gain calibration needs a range, the scanner probes `SoapySDRUtil` for the
+selected profile driver and uses the reported gain range when available. If a
+driver does not report a usable range, add `gain_min` and `gain_max` overrides
+to the profile JSON. `gain_incr` may be an integer or `"auto"`; `"auto"` picks
+a step that tests no more than 9 gains per chunk while still including the
+maximum gain.
 
 ## Installed source snapshot
 
@@ -176,8 +193,16 @@ systemctl is-active sdrplay
 SoapySDRUtil --info
 SoapySDRUtil --find=sdrplay
 SoapySDRUtil --probe="driver=sdrplay"
+fmbcb-rds-multi-scan --list-rx-sdr
+fmbcb-rds-multi-scan --probe-rx-sdr
 fmbcb-rds-env-check
 ```
+
+Use concrete model profiles such as `--rx-sdr sdrplay-rsp1`,
+`--rx-sdr sdrplay-rsp1a`, or `--rx-sdr sdrplay-rspdx` for repeatable scans.
+The `--rx-sdr sdrplay` alias and `--rx-sdr auto` probe connected SoapySDR
+hardware and resolve to a concrete profile when possible. Edit installed
+profiles in `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json`.
 
 `SoapySDRUtil --find=sdrplay` and `--probe="driver=sdrplay"` require connected,
 powered hardware. A loaded SoapySDRPlay3 module can still be present when no

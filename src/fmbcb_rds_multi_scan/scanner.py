@@ -6,12 +6,14 @@ import json
 import math
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
 import threading
 import time
 import urllib.request
+from pathlib import Path
 from collections import defaultdict
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -40,6 +42,8 @@ RABBITEARS_MAX_STATIONS_PER_POST = 20
 RABBITEARS_STATION_UPLOAD_CACHE_MINUTES = 30
 RABBITEARS_STATION_UPLOAD_CACHE: Dict[str, float] = {}
 RABBITEARS_STATION_UPLOAD_CACHE_LOCK = threading.Lock()
+MAX_GAIN_VALUES_PER_CHUNK = 9
+
 
 
 def format_rabbitears_time(record_time_unix=None) -> str:
@@ -918,80 +922,369 @@ def terminate_process_tree(proc: Optional[subprocess.Popen], name: str = "proces
 # rx_sdr hardware profiles and gain handling
 # ---------------------------------------------------------------------------
 
-RX_SDR_PROFILES = {
-    "sdrplay": {
-        "device_args": ["-d", "driver=sdrplay"],
-        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
-        # rx_sdr wants SDRplay gain as: -g RFGR=<n>
-        "gain_args": ["-g", "RFGR="],
-        "gain_min": 0,
-        "gain_max": 6,
-        "gain_incr": 1,
-    },
-    "airspy": {
-        "device_args": ["-d", "driver=airspy"],
-        "sample_rate": ["3m", "6m"],
-        # rx_sdr wants RTL-SDR-style gain as: -g <n>
-        "gain_args": ["-g", ""],
-        "gain_min": 0,
-        "gain_max": 45,
-        "gain_incr": 5,
-    },
-    "bladerf": {
-        "device_args": ["-d", "driver=bladerf"],
-        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
-        # rx_sdr wants RTL-SDR-style gain as: -g <n>
-        "gain_args": ["-g", ""],
-        "gain_min": 0,
-        "gain_max": 50,
-        "gain_incr": 1,
-    },
-    "hackrf": {
-        "device_args": ["-d", "driver=hackrf"],
-        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
-        # rx_sdr wants RTL-SDR-style gain as: -g <n>
-        "gain_args": ["-g", ""],
-        "gain_min": 0,
-        "gain_max": 50,
-        "gain_incr": 1,
-    },
-    "lime": {
-        "device_args": ["-d", "driver=lime"],
-        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
-        # rx_sdr wants RTL-SDR-style gain as: -g <n>
-        "gain_args": ["-g", ""],
-        "gain_min": 0,
-        "gain_max": 50,
-        "gain_incr": 1,
-    },
-    "miri": {
-        "device_args": ["-d", "driver=miri"],
-        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
-        # rx_sdr wants RTL-SDR-style gain as: -g <n>
-        "gain_args": ["-g", ""],
-        "gain_min": 0,
-        "gain_max": 50,
-        "gain_incr": 1,
-    },
-    "rtlsdr": {
-        "device_args": ["-d", "driver=rtlsdr"],
-        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
-        # rx_sdr wants RTL-SDR gain as: -g <n>
-        "gain_args": ["-g", ""],
-        "gain_min": 0,
-        "gain_max": 50,
-        "gain_incr": 1,
-    },
-    "uhd": {
-        "device_args": ["-d", "driver=uhd"],
-        "sample_rate": ["2m", "3m", "4m", "5m", "6m"],
-        # rx_sdr wants RTL-SDR-style gain as: -g <n>
-        "gain_args": ["-g", ""],
-        "gain_min": 0,
-        "gain_max": 50,
-        "gain_incr": 1,
-    },
-}
+RX_SDR_PROFILE_CONFIG_FILENAMES = [
+    Path(__file__).resolve().parents[2] / "config" / "rx_sdr_profiles.json",
+    Path("/usr/local/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json"),
+    Path("/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json"),
+]
+
+
+def deep_merge_dicts(base: Dict, override: Dict) -> Dict:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge_dicts(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def rx_sdr_profile_config_paths() -> List[Path]:
+    paths = list(RX_SDR_PROFILE_CONFIG_FILENAMES)
+    override = os.environ.get("FMB_RX_SDR_PROFILES")
+    if override:
+        paths.append(Path(override))
+    return paths
+
+
+def load_rx_sdr_profile_config() -> Tuple[Dict[str, Dict], Dict[str, List[str]], List[str]]:
+    profiles: Dict[str, Dict] = {}
+    aliases: Dict[str, List[str]] = {}
+    loaded_paths: List[str] = []
+
+    for path in rx_sdr_profile_config_paths():
+        if not path.exists():
+            continue
+
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                config = json.load(f)
+        except Exception as e:
+            print(f"Warning: could not load rx_sdr profile config {path}: {e}", file=sys.stderr)
+            continue
+
+        config_profiles = config.get("profiles", {})
+        if isinstance(config_profiles, dict):
+            for name, profile in config_profiles.items():
+                key = str(name).strip().lower()
+                if not key or not isinstance(profile, dict):
+                    continue
+                profiles[key] = deep_merge_dicts(profiles.get(key, {}), profile)
+
+        config_aliases = config.get("aliases", {})
+        if isinstance(config_aliases, dict):
+            for alias, targets in config_aliases.items():
+                key = str(alias).strip().lower()
+                if key and isinstance(targets, list):
+                    aliases[key] = [str(target).strip().lower() for target in targets if str(target).strip()]
+
+        loaded_paths.append(str(path))
+
+    return profiles, aliases, loaded_paths
+
+
+RX_SDR_PROFILES, RX_SDR_PROFILE_ALIASES, RX_SDR_PROFILE_CONFIG_LOADED_FROM = load_rx_sdr_profile_config()
+
+
+def get_rx_sdr_choices() -> List[str]:
+    return sorted(set(RX_SDR_PROFILES.keys()) | set(RX_SDR_PROFILE_ALIASES.keys()) | {"auto"})
+
+
+def normalize_hardware_value(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+def profile_matches_hardware(profile: Dict, hardware: str) -> bool:
+    normalized_hardware = normalize_hardware_value(hardware)
+    return any(
+        normalize_hardware_value(str(candidate)) == normalized_hardware
+        for candidate in profile.get("hardware", [])
+    )
+
+
+def extract_soapy_hardware(probe_output: str) -> Optional[str]:
+    for pattern in (
+        r"\bhardware\s*=\s*([^,\]\s]+)",
+        r"\bHardware\s*[:=]\s*([^,\]\s]+)",
+    ):
+        match = re.search(pattern, probe_output)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def gain_names_for_profile(profile: Dict) -> List[str]:
+    names: List[str] = []
+    gain_name = profile.get("gain_name")
+    if isinstance(gain_name, str) and gain_name.strip():
+        names.append(gain_name.strip())
+
+    gain_args = profile.get("gain_args")
+    if isinstance(gain_args, list) and gain_args:
+        suffix = str(gain_args[-1]).strip()
+        if suffix.endswith("=") and suffix[:-1]:
+            names.append(suffix[:-1])
+
+    deduped: List[str] = []
+    for name in names:
+        if name not in deduped:
+            deduped.append(name)
+    return deduped
+
+
+def parse_gain_range_from_line(line: str) -> Optional[Tuple[int, int]]:
+    lower = line.lower()
+    if not any(token in lower for token in ("gain", "range", "[", "minimum", "maximum", "min", "max")):
+        return None
+
+    bracket_match = re.search(r"\[\s*([-+]?\d+(?:\.\d+)?)\s*,\s*([-+]?\d+(?:\.\d+)?)\s*\]", line)
+    if bracket_match:
+        low = int(math.floor(float(bracket_match.group(1))))
+        high = int(math.ceil(float(bracket_match.group(2))))
+        return (low, high) if low <= high else (high, low)
+
+    minmax_match = re.search(
+        r"(?:min(?:imum)?)[^\d+-]*([-+]?\d+(?:\.\d+)?).*?(?:max(?:imum)?)[^\d+-]*([-+]?\d+(?:\.\d+)?)",
+        line,
+        flags=re.IGNORECASE,
+    )
+    if minmax_match:
+        low = int(math.floor(float(minmax_match.group(1))))
+        high = int(math.ceil(float(minmax_match.group(2))))
+        return (low, high) if low <= high else (high, low)
+
+    numbers = re.findall(r"[-+]?\d+(?:\.\d+)?", line)
+    if len(numbers) < 2:
+        return None
+
+    low = int(math.floor(float(numbers[-2])))
+    high = int(math.ceil(float(numbers[-1])))
+    if high < low:
+        low, high = high, low
+    return low, high
+
+
+def extract_soapy_gain_range(probe_output: str, gain_names: Optional[List[str]] = None) -> Optional[Tuple[int, int]]:
+    lines = probe_output.splitlines()
+    normalized_names = [name.lower() for name in gain_names or [] if name]
+
+    for name in normalized_names:
+        for line in lines:
+            if name not in line.lower():
+                continue
+            parsed = parse_gain_range_from_line(line)
+            if parsed is not None:
+                return parsed
+
+    for line in lines:
+        if "gain" not in line.lower():
+            continue
+        parsed = parse_gain_range_from_line(line)
+        if parsed is not None:
+            return parsed
+
+    return None
+
+
+def get_probed_gain_range(profile: Dict) -> Optional[Tuple[int, int]]:
+    driver = profile.get("driver")
+    if not driver:
+        return None
+
+    try:
+        code, output = run_soapy_probe(str(driver))
+    except (OSError, subprocess.TimeoutExpired, ValueError) as e:
+        print(f"Warning: could not probe gain range for driver={driver}: {e}", file=sys.stderr)
+        return None
+
+    if code != 0:
+        first_line = output.strip().splitlines()[0] if output.strip() else f"exit {code}"
+        print(f"Warning: could not probe gain range for driver={driver}: {first_line}", file=sys.stderr)
+        return None
+
+    return extract_soapy_gain_range(output, gain_names_for_profile(profile))
+
+
+def get_profile_gain_range(profile: Dict, rx_sdr_name: str, require_range: bool = False) -> Optional[Tuple[int, int]]:
+    probed_range = get_probed_gain_range(profile)
+    if probed_range is not None:
+        return probed_range
+
+    gain_min = profile.get("gain_min")
+    gain_max = profile.get("gain_max")
+    if gain_min is not None and gain_max is not None:
+        return int(gain_min), int(gain_max)
+
+    if require_range:
+        raise ValueError(
+            f"--rx-sdr {rx_sdr_name} does not have a usable gain range. "
+            "Connect hardware so SoapySDRUtil can probe gain limits, or add "
+            "gain_min/gain_max overrides to the rx_sdr profile config file."
+        )
+
+    return None
+
+
+def calculate_auto_gain_incr(gain_min: int, gain_max: int) -> int:
+    span = int(gain_max) - int(gain_min)
+    if span <= 0:
+        return 1
+    return max(1, int(math.ceil(span / float(MAX_GAIN_VALUES_PER_CHUNK - 1))))
+
+
+def expand_gain_values(gain_min: int, gain_max: int, gain_incr: int) -> List[int]:
+    values = list(range(int(gain_min), int(gain_max) + 1, int(gain_incr)))
+    if not values or values[-1] != int(gain_max):
+        values.append(int(gain_max))
+    return sorted(dict.fromkeys(values))
+
+
+def run_soapy_probe(driver: str, timeout: float = 8.0) -> Tuple[int, str]:
+    if not shutil.which("SoapySDRUtil"):
+        raise ValueError("SoapySDRUtil was not found; install SoapySDR tools or use a concrete --rx-sdr profile.")
+
+    proc = subprocess.run(
+        ["SoapySDRUtil", f"--probe=driver={driver}"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+
+
+def candidate_profiles_for_rx_sdr(rx_sdr_name: str) -> List[str]:
+    if rx_sdr_name == "auto":
+        return sorted(RX_SDR_PROFILES.keys())
+    if rx_sdr_name in RX_SDR_PROFILE_ALIASES:
+        return RX_SDR_PROFILE_ALIASES[rx_sdr_name]
+    if rx_sdr_name in RX_SDR_PROFILES:
+        return [rx_sdr_name]
+    return []
+
+
+def resolve_rx_sdr_profile_name(rx_sdr_name: str) -> str:
+    requested = rx_sdr_name.strip().lower()
+
+    if requested in RX_SDR_PROFILES:
+        return requested
+
+    candidates = candidate_profiles_for_rx_sdr(requested)
+    if not candidates:
+        supported = ", ".join(get_rx_sdr_choices())
+        raise ValueError(f"Unsupported --rx-sdr '{rx_sdr_name}'. Supported values: {supported}")
+
+    drivers = sorted({str(RX_SDR_PROFILES[name].get("driver", name)) for name in candidates})
+    matches: List[Tuple[str, str]] = []
+    probe_errors: List[str] = []
+
+    for driver in drivers:
+        try:
+            code, output = run_soapy_probe(driver)
+        except (OSError, subprocess.TimeoutExpired, ValueError) as e:
+            probe_errors.append(f"{driver}: {e}")
+            continue
+
+        if code != 0:
+            first_line = output.strip().splitlines()[0] if output.strip() else f"exit {code}"
+            probe_errors.append(f"{driver}: {first_line}")
+            continue
+
+        hardware = extract_soapy_hardware(output)
+        driver_candidates = [
+            name for name in candidates if RX_SDR_PROFILES[name].get("driver") == driver
+        ]
+
+        if hardware:
+            for name in driver_candidates:
+                if profile_matches_hardware(RX_SDR_PROFILES[name], hardware):
+                    matches.append((name, hardware))
+        elif len(driver_candidates) == 1:
+            matches.append((driver_candidates[0], "unknown"))
+
+    if len(matches) == 1:
+        profile_name, hardware = matches[0]
+        print(
+            f"Detected --rx-sdr {profile_name}"
+            + (f" from SoapySDR hardware={hardware}." if hardware != "unknown" else "."),
+            file=sys.stderr,
+        )
+        return profile_name
+
+    if len(matches) > 1:
+        detected = ", ".join(f"{name} ({hardware})" for name, hardware in matches)
+        raise ValueError(
+            f"--rx-sdr {rx_sdr_name} matched multiple devices: {detected}. "
+            "Use a concrete --rx-sdr profile."
+        )
+
+    detail = "; ".join(probe_errors) if probe_errors else "no matching SoapySDR hardware reported"
+    raise ValueError(
+        f"Could not auto-resolve --rx-sdr {rx_sdr_name}: {detail}. "
+        f"Use one of: {', '.join(candidates)}"
+    )
+
+
+def print_rx_sdr_profiles() -> None:
+    loaded_from = ", ".join(RX_SDR_PROFILE_CONFIG_LOADED_FROM) or "no profile config loaded"
+    print(f"rx_sdr profile config: {loaded_from}")
+    print("Supported rx_sdr profiles:")
+    for name in sorted(RX_SDR_PROFILES.keys()):
+        profile = RX_SDR_PROFILES[name]
+        hardware = ", ".join(profile.get("hardware", [])) or "-"
+        sample_rates = ", ".join(profile.get("sample_rate", [])) or "-"
+        gain_args = " ".join(profile.get("gain_args", [])) or "-"
+        gain_min = profile.get("gain_min")
+        gain_max = profile.get("gain_max")
+        gain_range = f"{gain_min}..{gain_max}" if gain_min is not None and gain_max is not None else "probe"
+        gain_incr = profile.get("gain_incr", "auto")
+        print(
+            f"  {name}\n"
+            f"    driver: {profile.get('driver', '-')}\n"
+            f"    hardware: {hardware}\n"
+            f"    rx_sdr args: {' '.join(profile.get('device_args', []))}\n"
+            f"    gain: {gain_args}<value>, range {gain_range}, step {gain_incr}\n"
+            f"    sample rates: {sample_rates}"
+        )
+
+    if RX_SDR_PROFILE_ALIASES:
+        print("\nAliases:")
+        for alias, targets in sorted(RX_SDR_PROFILE_ALIASES.items()):
+            print(f"  {alias}: auto-detects one of {', '.join(targets)}")
+    print("  auto: probes supported drivers and selects the detected concrete profile")
+
+
+def print_rx_sdr_probe() -> int:
+    print_rx_sdr_profiles()
+    print("\nDetected SDR devices:")
+
+    any_detected = False
+    for driver in sorted({str(profile.get("driver", name)) for name, profile in RX_SDR_PROFILES.items()}):
+        try:
+            code, output = run_soapy_probe(driver)
+        except (OSError, subprocess.TimeoutExpired, ValueError) as e:
+            print(f"  {driver}: probe failed: {e}")
+            continue
+
+        if code != 0:
+            first_line = output.strip().splitlines()[0] if output.strip() else f"exit {code}"
+            print(f"  {driver}: not detected ({first_line})")
+            continue
+
+        any_detected = True
+        hardware = extract_soapy_hardware(output) or "unknown"
+        matching_profiles = [
+            name
+            for name, profile in sorted(RX_SDR_PROFILES.items())
+            if profile.get("driver") == driver
+            and (not profile.get("hardware") or profile_matches_hardware(profile, hardware))
+        ]
+        profile_text = ", ".join(matching_profiles) if matching_profiles else "no matching profile"
+        gain_range = extract_soapy_gain_range(output)
+        gain_text = f"; gain_range={gain_range[0]}..{gain_range[1]}" if gain_range else ""
+        print(f"  {driver}: hardware={hardware}; profile={profile_text}{gain_text}")
+
+    return 0 if any_detected else 1
 
 
 def build_gain_args_from_profile(profile: Dict, gain_value: int, rx_sdr_name: str) -> List[str]:
@@ -1047,20 +1340,22 @@ def build_rx_sdr_hardware_args_for_gain(args, gain_value: Optional[int]) -> List
         rx_args.extend(profile.get("device_args", []))
 
         if gain_value is not None:
-            gain_min = profile.get("gain_min")
-            gain_max = profile.get("gain_max")
+            gain_range = get_profile_gain_range(profile, rx_sdr_name, require_range=False)
 
-            if gain_min is not None and gain_value < gain_min:
-                raise ValueError(
-                    f"Gain {gain_value} is below valid range for {rx_sdr_name}: "
-                    f"{gain_min}–{gain_max}"
-                )
+            if gain_range is not None:
+                gain_min, gain_max = gain_range
 
-            if gain_max is not None and gain_value > gain_max:
-                raise ValueError(
-                    f"Gain {gain_value} is above valid range for {rx_sdr_name}: "
-                    f"{gain_min}–{gain_max}"
-                )
+                if gain_value < gain_min:
+                    raise ValueError(
+                        f"Gain {gain_value} is below valid range for {rx_sdr_name}: "
+                        f"{gain_min}–{gain_max}"
+                    )
+
+                if gain_value > gain_max:
+                    raise ValueError(
+                        f"Gain {gain_value} is above valid range for {rx_sdr_name}: "
+                        f"{gain_min}–{gain_max}"
+                    )
 
             rx_args.extend(build_gain_args_from_profile(profile, gain_value, rx_sdr_name))
 
@@ -1136,21 +1431,28 @@ def get_gain_values_for_profile(args) -> List[int]:
     if profile is None:
         raise ValueError(f"Unsupported --rx-sdr '{args.rx_sdr}'.")
 
-    gain_min = profile.get("gain_min")
-    gain_max = profile.get("gain_max")
-    gain_incr = (
-        args.gain_calibration_incr
-        if getattr(args, "gain_calibration_incr", None) is not None
-        else profile.get("gain_incr", 1)
-    )
+    gain_min, gain_max = get_profile_gain_range(profile, rx_sdr_name, require_range=True)
 
-    if gain_min is None or gain_max is None:
-        raise ValueError(f"--rx-sdr {rx_sdr_name} does not define a gain range.")
+    if getattr(args, "gain_calibration_incr", None) is not None:
+        gain_incr = int(args.gain_calibration_incr)
+    else:
+        profile_gain_incr = profile.get("gain_incr", "auto")
+        if isinstance(profile_gain_incr, str) and profile_gain_incr.strip().lower() == "auto":
+            gain_incr = calculate_auto_gain_incr(gain_min, gain_max)
+        else:
+            gain_incr = int(profile_gain_incr)
 
     if int(gain_incr) <= 0:
         raise ValueError(f"--rx-sdr {rx_sdr_name} has invalid gain_incr={gain_incr}.")
 
-    return list(range(int(gain_min), int(gain_max) + 1, int(gain_incr)))
+    values = expand_gain_values(gain_min, gain_max, gain_incr)
+    print(
+        f"Gain calibration range for {rx_sdr_name}: {gain_min}..{gain_max}, "
+        f"step {gain_incr}, testing {len(values)} value(s): "
+        + ", ".join(str(value) for value in values),
+        file=sys.stderr,
+    )
+    return values
 
 
 def count_total_raw_station_decodes(records: List[Dict]) -> int:
@@ -2784,10 +3086,11 @@ def main() -> int:
     parser.add_argument(
         "--rx-sdr",
         required=True,
-        choices=sorted(RX_SDR_PROFILES.keys()),
+        choices=get_rx_sdr_choices(),
         help=(
             "SDR hardware profile to use for rx_sdr device selection. "
-            "Example: --rx-sdr sdrplay expands to -d driver=sdrplay."
+            "Use a concrete model such as sdrplay-rsp1a, or use sdrplay/auto "
+            "to probe connected SoapySDR hardware."
         ),
     )
 
@@ -2920,6 +3223,18 @@ def main() -> int:
     )
 
     parser.add_argument(
+        "--list-rx-sdr",
+        action="store_true",
+        help="List modeled rx_sdr hardware profiles and aliases, then exit.",
+    )
+
+    parser.add_argument(
+        "--probe-rx-sdr",
+        action="store_true",
+        help="Probe connected SoapySDR devices, show matching rx_sdr profiles, then exit.",
+    )
+
+    parser.add_argument(
         "--no-echo",
         action="store_true",
         help="Do not print confirmed PI codes to terminal; only append JSONL output.",
@@ -2971,7 +3286,7 @@ def main() -> int:
         type=int,
         help=(
             "Fixed SDR gain value using the selected --rx-sdr profile. "
-            "For --rx-sdr sdrplay this expands to -g RFGR=<value>, valid range 0–6. "
+            "For SDRplay model profiles this expands to -g RFGR=<value>. "
             "If omitted, full-band mode can calibrate the best gain per chunk."
         ),
     )
@@ -3069,7 +3384,20 @@ def main() -> int:
         help="RabbitEars upload timeout in seconds. Default: 20.",
     )
 
+    if "--list-rx-sdr" in sys.argv[1:]:
+        print_rx_sdr_profiles()
+        return 0
+
+    if "--probe-rx-sdr" in sys.argv[1:]:
+        return print_rx_sdr_probe()
+
     args = parser.parse_args()
+
+    try:
+        args.rx_sdr = resolve_rx_sdr_profile_name(args.rx_sdr)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 2
 
     if args.duration <= 0:
         print("Error: --duration must be greater than zero.", file=sys.stderr)
