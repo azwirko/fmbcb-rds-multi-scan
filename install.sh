@@ -4,10 +4,12 @@ set -Eeuo pipefail
 APP_NAME="fmbcb-rds-multi-scan"
 DEFAULT_PREFIX="/opt/${APP_NAME}"
 DEFAULT_BIN_DIR="/usr/local/bin"
+DEFAULT_CONFIG_DIR="/etc/${APP_NAME}"
 DEFAULT_BUILD_ROOT="/usr/local/src/${APP_NAME}-deps"
 
 PREFIX="${FMB_PREFIX:-$DEFAULT_PREFIX}"
 BIN_DIR="${FMB_BIN_DIR:-$DEFAULT_BIN_DIR}"
+CONFIG_DIR="${FMB_CONFIG_DIR:-$DEFAULT_CONFIG_DIR}"
 BUILD_ROOT="${FMB_BUILD_ROOT:-$DEFAULT_BUILD_ROOT}"
 FORCE_BUILD="${FMB_FORCE_BUILD:-0}"
 SKIP_APT="${FMB_SKIP_APT:-0}"
@@ -47,6 +49,7 @@ SoapySDRPlay3 are checked and installed when missing.
 Options:
   --prefix PATH              Install app under PATH [${DEFAULT_PREFIX}]
   --bin-dir PATH             Install command wrappers under PATH [${DEFAULT_BIN_DIR}]
+  --config-dir PATH          Install editable app config under PATH [${DEFAULT_CONFIG_DIR}]
   --build-root PATH          Native dependency source/build root [${DEFAULT_BUILD_ROOT}]
   --force-build              Rebuild native tools even when commands already exist
   --skip-apt                 Do not install the full runtime APT package group
@@ -63,6 +66,7 @@ Options:
   -h, --help                 Show this help
 
 Environment overrides:
+  FMB_CONFIG_DIR
   FMB_RX_TOOLS_REPO, FMB_RX_TOOLS_REF
   FMB_CSDR_REPO, FMB_CSDR_REF
   FMB_REDSEA_REPO, FMB_REDSEA_REF
@@ -108,6 +112,7 @@ validate_install_path() {
 validate_install_paths() {
   validate_install_path "--prefix/FMB_PREFIX" "$PREFIX"
   validate_install_path "--bin-dir/FMB_BIN_DIR" "$BIN_DIR"
+  validate_install_path "--config-dir/FMB_CONFIG_DIR" "$CONFIG_DIR"
   validate_install_path "--build-root/FMB_BUILD_ROOT" "$BUILD_ROOT"
 }
 
@@ -115,6 +120,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --prefix) require_option_value "$1" "${2-}"; PREFIX="$2"; shift 2 ;;
     --bin-dir) require_option_value "$1" "${2-}"; BIN_DIR="$2"; shift 2 ;;
+    --config-dir) require_option_value "$1" "${2-}"; CONFIG_DIR="$2"; shift 2 ;;
     --build-root) require_option_value "$1" "${2-}"; BUILD_ROOT="$2"; shift 2 ;;
     --force-build) FORCE_BUILD=1; shift ;;
     --skip-apt) SKIP_APT=1; shift ;;
@@ -144,6 +150,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${PREFIX}/venv"
 APP_SRC_DIR="${PREFIX}/src"
 INSTALL_INFO_FILE="${PREFIX}/install-info.env"
+RX_SDR_PROFILE_CONFIG_FILE="${CONFIG_DIR}/rx_sdr_profiles.json"
 
 log() { printf '\n==> %s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*" >&2; }
@@ -280,6 +287,8 @@ Paths:
   prefix:         ${PREFIX}
   bin dir:        ${BIN_DIR}
   build root:     ${BUILD_ROOT}
+  config dir:     ${CONFIG_DIR}
+  profile config: ${RX_SDR_PROFILE_CONFIG_FILE}
   venv:           ${VENV_DIR}
   app source:     ${APP_SRC_DIR}
   install info:   ${INSTALL_INFO_FILE}
@@ -324,6 +333,7 @@ EOF
 
 Python app:
   action: create/update virtual environment and install curated source snapshot
+  config: seed ${RX_SDR_PROFILE_CONFIG_FILE} if missing
   wrappers:
     - ${BIN_DIR}/${APP_NAME}
     - ${BIN_DIR}/fmbcb-rds-env-check
@@ -617,6 +627,18 @@ EOF
   warn "Reboot or unplug/replug the RTL-SDR device after blacklisting modules."
 }
 
+install_rx_sdr_profile_config() {
+  log "Installing editable rx_sdr profile config"
+  mkdir -p "$CONFIG_DIR"
+
+  if [[ -f "$RX_SDR_PROFILE_CONFIG_FILE" ]]; then
+    warn "Keeping existing rx_sdr profile config: ${RX_SDR_PROFILE_CONFIG_FILE}"
+    return
+  fi
+
+  install -m 0644 "$REPO_ROOT/config/rx_sdr_profiles.json" "$RX_SDR_PROFILE_CONFIG_FILE"
+}
+
 install_python_app() {
   log "Installing ${APP_NAME} into ${PREFIX}"
   mkdir -p "$PREFIX" "$BIN_DIR"
@@ -659,6 +681,8 @@ PYAPPVERSION
   write_env_kv "INSTALLED_AT_UTC" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   write_env_kv "PREFIX" "$PREFIX"
   write_env_kv "BIN_DIR" "$BIN_DIR"
+  write_env_kv "CONFIG_DIR" "$CONFIG_DIR"
+  write_env_kv "RX_SDR_PROFILE_CONFIG_FILE" "$RX_SDR_PROFILE_CONFIG_FILE"
   write_env_kv "BUILD_ROOT" "$BUILD_ROOT"
   write_env_kv "APP_SRC_DIR" "$APP_SRC_DIR"
   write_env_kv "VENV_DIR" "$VENV_DIR"
@@ -698,6 +722,7 @@ install_wrappers() {
   log "Installing command wrappers in ${BIN_DIR}"
   cat > "${BIN_DIR}/${APP_NAME}" <<EOF
 #!/usr/bin/env bash
+export FMB_RX_SDR_PROFILES="${RX_SDR_PROFILE_CONFIG_FILE}"
 exec "${VENV_DIR}/bin/${APP_NAME}" "\$@"
 EOF
   cat > "${BIN_DIR}/fmbcb-rds-env-check" <<EOF
@@ -726,6 +751,7 @@ main() {
   build_redsea
   install_rtl_blacklist
   install_python_app
+  install_rx_sdr_profile_config
   write_install_info
   install_wrappers
 

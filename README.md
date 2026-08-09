@@ -15,6 +15,7 @@ package. The installer:
 - creates `/opt/fmbcb-rds-multi-scan/venv`;
 - installs the Python package into that venv from a curated source snapshot;
 - writes `/opt/fmbcb-rds-multi-scan/install-info.env` with install/source metadata;
+- seeds `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json` if it does not already exist;
 - creates `/usr/local/bin/fmbcb-rds-multi-scan` and `/usr/local/bin/fmbcb-rds-env-check` wrappers;
 - runs an environment checker at the end.
 
@@ -48,11 +49,24 @@ fmbcb-rds-multi-scan \
 For SDRplay, the installer checks the `sdrplay` service, downloads and runs
 SDRplay API 3.x when needed, builds SoapySDRPlay3 from source, and prints
 `SoapySDRUtil` module/device output at the end. The SDRplay API installer may
-prompt for EULA acceptance. Then use:
+prompt for EULA acceptance. Then list or probe the modeled receiver profiles:
+
+```bash
+fmbcb-rds-multi-scan --list-rx-sdr
+fmbcb-rds-multi-scan --probe-rx-sdr
+```
+
+Use a concrete SDRplay model profile for repeatable scans. The legacy
+`--rx-sdr sdrplay` alias and `--rx-sdr auto` probe connected SoapySDR hardware
+and resolve to a concrete profile when possible. Receiver profiles are stored in
+`/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json` after install; reinstall keeps
+local edits. Gain ranges are probed from `SoapySDRUtil` when possible, and
+automatic calibration uses an `auto` gain step that tests no more than 9 gain
+values per chunk.
 
 ```bash
 fmbcb-rds-multi-scan \
-  --rx-sdr sdrplay \
+  --rx-sdr sdrplay-rsp1a \
   --bandwidth 5M \
   --duration 10 \
   --output ~/rds-scan.jsonl \
@@ -112,7 +126,9 @@ make package
 │   ├── __main__.py
 │   ├── scanner.py
 │   └── check_env.py
-├── config/defaults.env.sample
+├── config/
+│   ├── defaults.env.sample
+│   └── rx_sdr_profiles.json
 ├── examples/
 │   ├── quickstart.sh
 │   └── systemd/fmbcb-rds-multi-scan.service.example
@@ -133,8 +149,11 @@ make package
   paths, native dependency repos/refs, SDRplay installer settings, and native
   checkout commits when present.
 - `--rx-sdr` profiles validate `--bandwidth` against their allowed sample-rate
-  list. Current profiles accept exact matches for `2m`, `3m`, `4m`, `5m`, or
-  `6m`.
+  list. SDRplay profiles are model-specific, such as `sdrplay-rsp1`,
+  `sdrplay-rsp1a`, and `sdrplay-rspdx`; `sdrplay` and `auto` use
+  `SoapySDRUtil --probe` to resolve connected hardware when possible. Installed
+  profiles live in `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json`, with
+  `FMB_RX_SDR_PROFILES` available as an override.
 - The `rx_sdr` source repo is configurable through `FMB_RX_TOOLS_REPO` because
   deployments may use different forks/builds of the SoapySDR `rx_sdr` tool.
 
