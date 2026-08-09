@@ -1972,16 +1972,16 @@ def build_branch_pipeline(
     # shift = -(target - center) / sample_rate
     shift = -offset_hz / bandwidth_hz
 
-    # decim = max(1, int(round(bandwidth_hz / channel_rate_hz)))
-    decim = max(1, int(round(bandwidth_hz / redsea_rate_hz)))
+    decim = max(1, int(round(bandwidth_hz / channel_rate_hz)))
     post_decim_rate = bandwidth_hz / decim
     fractional_decim = post_decim_rate / redsea_rate_hz
+    transition_width = 50000.0 / bandwidth_hz
 
     return [
         ["csdr", "shift_addition_cc", f"{shift:.12f}"],
-        ["csdr", "fir_decimate_cc", str(decim), "0.02", "HAMMING"],
+        ["csdr", "fir_decimate_cc", str(decim), f"{transition_width:.12f}", "HAMMING"],
         ["csdr", "fmdemod_quadri_cf"],
-        # ["csdr", "fractional_decimator_ff", f"{fractional_decim:.12f}"],
+        ["csdr", "fractional_decimator_ff", f"{fractional_decim:.12f}"],
         ["csdr", "convert_f_i16"],
         ["redsea", "-r", f"{int(round(redsea_rate_hz))}"],
     ]
@@ -2813,8 +2813,8 @@ def main() -> int:
 
     parser.add_argument(
         "--channel-rate",
-        default="500k",
-        help="Intermediate single-channel complex rate after decimation. Default: 500k",
+        default="384k",
+        help="Intermediate single-channel complex rate after decimation. Default: 384k",
     )
 
     parser.add_argument(
@@ -2951,7 +2951,7 @@ def main() -> int:
 
     parser.add_argument(
         "--redsea-rate",
-        default="166666",
+        default="171k",
         help="MPX sample rate sent to redsea. Default: 171k",
     )
 
