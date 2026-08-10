@@ -116,6 +116,14 @@ If a source module fails to build, rerun without
 `--skip-build-prereq-apt`; use `--skip-soapy-extra-build` only when the extra
 source modules are intentionally not required.
 
+## Understanding station signal values
+
+Each station row in the JSONL output and RabbitEars payload includes `s`. This
+is a capped dBFS value based on successful PI decodes: `20 * log10(count /
+(11 * chunk_duration_seconds))`. Values normally range below zero; `0.0` means
+the station reached or exceeded the theoretical 11-dec decoded PI codes per
+second maximum.
+
 ## Redsea builds but runtime cannot find shared libraries
 
 Run:

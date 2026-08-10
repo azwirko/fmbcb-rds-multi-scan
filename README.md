@@ -70,6 +70,10 @@ For automatic calibration, a probed maximum is reduced by one because some
 drivers report an upper endpoint that the hardware does not accept; explicit
 profile overrides are used as written.
 
+Station summaries include `s`, a capped dBFS signal value calculated as
+`20 * log10(pi_decodes / (11 * chunk_duration_seconds))`. A station at or above
+the theoretical 11 PI decodes per second maximum is reported as `s: 0.0`.
+
 ```bash
 fmbcb-rds-multi-scan \
   --rx-sdr sdrplay-rsp1a \
