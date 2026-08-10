@@ -122,6 +122,14 @@ the hardware does not accept. This adjustment applies only to probed ranges
 used for calibration; explicit `gain_min` and `gain_max` profile overrides are
 used as written.
 
+## Station signal values
+
+The JSONL station summary and RabbitEars signal payload include an `s` field for
+each decoded station. It is calculated from the station's successful PI decode
+count relative to `11 * chunk_duration_seconds`, using `20 * log10(ratio)`. The
+value is capped at `0.0` dBFS when the observed count reaches or exceeds the
+theoretical maximum.
+
 ## Installed source snapshot
 
 The installer does not copy the entire local working tree into `/opt`. It copies

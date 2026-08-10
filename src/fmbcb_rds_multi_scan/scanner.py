@@ -43,7 +43,30 @@ RABBITEARS_STATION_UPLOAD_CACHE_MINUTES = 30
 RABBITEARS_STATION_UPLOAD_CACHE: Dict[str, float] = {}
 RABBITEARS_STATION_UPLOAD_CACHE_LOCK = threading.Lock()
 MAX_GAIN_VALUES_PER_CHUNK = 9
+MAX_PI_DECODES_PER_SECOND = 11
 
+
+def calculate_signal_dbfs(decode_count, duration_seconds: float) -> float:
+    """Convert station PI decode coverage into a capped dBFS-like signal value."""
+    try:
+        count = float(decode_count or 0)
+        duration = float(duration_seconds or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+    maximum_count = MAX_PI_DECODES_PER_SECOND * duration
+    if count <= 0 or maximum_count <= 0:
+        return 0.0
+
+    ratio = min(count / maximum_count, 1.0)
+    return round(20.0 * math.log10(ratio), 2)
+
+
+def signal_dbfs_for_record(record: Dict) -> float:
+    return calculate_signal_dbfs(
+        record.get("count", 0),
+        record.get("duration_seconds", 0),
+    )
 
 
 def format_rabbitears_time(record_time_unix=None) -> str:
@@ -235,6 +258,7 @@ def build_single_rabbitears_payload(tuner_key: int, record: Dict) -> Optional[Di
                 frequency_key : {
                     "time" : date_time,
                     "pi_code" : pi_hex,
+                    "s" : signal_dbfs_for_record(record),
                 }
             },
         }
@@ -583,6 +607,7 @@ def build_rabbitears_signal_entry(record: Dict) -> Optional[Tuple[str, Dict, str
         signal_value = {
             "pi_code": int(pi_dec),
             "time": format_rabbitears_time(record.get("time_unix")),
+            "s": signal_dbfs_for_record(record),
         }
 
         return frequency_key, signal_value, station_cache_key
@@ -1658,7 +1683,8 @@ def print_chunk_station_summary(records: List[Dict]) -> None:
             f"{state} "
             f"{decimal_lat} "
             f"{decimal_lon} "
-            f"count={count}",
+            f"count={count} "
+            f"s={signal_dbfs_for_record(record):.2f}",
             flush=True,
         )
 
@@ -1683,6 +1709,7 @@ def build_log_record_from_station_record(record: Dict) -> Dict:
         "state": record.get("state", ""),
         "location": record.get("location", ""),
         "count": record.get("count", 0),
+        "s": signal_dbfs_for_record(record),
         "cycle": record.get("cycle", ""),
         "time_unix": time_unix_value,
     }
@@ -2347,6 +2374,7 @@ class SharedPiState:
             chunk_index: int,
             center_hz: float,
             freq_match_tolerance_hz: float,
+            duration_seconds: float,
             upload_buffer: Optional[CycleUploadBuffer] = None,
     ):
         self.output_file = output_file
@@ -2357,6 +2385,7 @@ class SharedPiState:
         self.chunk_index = chunk_index
         self.center_hz = center_hz
         self.freq_match_tolerance_hz = freq_match_tolerance_hz
+        self.duration_seconds = duration_seconds
         self.upload_buffer = upload_buffer
         self.lock = threading.Lock()
 
@@ -2432,6 +2461,8 @@ class SharedPiState:
                 "frequency_mhz": round(target_hz / 1_000_000, 6),
                 "pi": pi,
                 "count": count,
+                "duration_seconds": self.duration_seconds,
+                "s": calculate_signal_dbfs(count, self.duration_seconds),
                 "validated_against_database": True,
                 "freq_match_tolerance_hz": self.freq_match_tolerance_hz,
                 "call_sign": call_sign,
@@ -2639,6 +2670,7 @@ def run_scan_chunk(
                 chunk_index=chunk_index,
                 center_hz=center_hz,
                 freq_match_tolerance_hz=args.freq_match_tolerance,
+                duration_seconds=effective_duration,
                 upload_buffer=local_capture_buffer,
             )
 
