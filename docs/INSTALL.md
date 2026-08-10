@@ -17,6 +17,15 @@ prerequisite packages and installs missing ones through APT. Subsequent installs
 are usually faster because existing services, commands, modules, and cached
 source checkouts are reused unless `--force-build` is supplied.
 
+One-line bootstrap from a fresh Debian/Ubuntu shell:
+
+```bash
+sudo apt-get update && sudo apt-get install -y git ca-certificates && bash -c 'set -Eeuo pipefail; temp_dir=$(mktemp -d); trap "rm -rf \"$temp_dir\"" EXIT; git clone --depth 1 https://github.com/azwirko/fmbcb-rds-multi-scan.git "$temp_dir/fmbcb-rds-multi-scan"; cd "$temp_dir/fmbcb-rds-multi-scan"; sudo ./install.sh'
+```
+
+The installer verifies that the host is Debian/Ubuntu-family and that
+`apt-get`, `apt-cache`, and `dpkg` are available before it proceeds.
+
 Quick start from a fresh clone:
 
 ```bash

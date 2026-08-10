@@ -23,6 +23,17 @@ package. The installer:
 
 ## Quick install
 
+For a one-line bootstrap on Debian/Ubuntu, copy and run:
+
+```bash
+sudo apt-get update && sudo apt-get install -y git ca-certificates && bash -c 'set -Eeuo pipefail; temp_dir=$(mktemp -d); trap "rm -rf \"$temp_dir\"" EXIT; git clone --depth 1 https://github.com/azwirko/fmbcb-rds-multi-scan.git "$temp_dir/fmbcb-rds-multi-scan"; cd "$temp_dir/fmbcb-rds-multi-scan"; sudo ./install.sh'
+```
+
+The installer verifies that the host is Debian/Ubuntu-family and that
+`apt-get`, `apt-cache`, and `dpkg` are available before it proceeds.
+
+For a manual clone workflow:
+
 ```bash
 git clone https://github.com/azwirko/fmbcb-rds-multi-scan.git
 cd fmbcb-rds-multi-scan

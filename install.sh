@@ -121,6 +121,31 @@ validate_install_path() {
   esac
 }
 
+check_debian_compliance() {
+  [[ -r /etc/os-release ]] || die "Cannot identify the operating system: /etc/os-release is missing."
+
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  local distro_id="${ID:-}"
+  local distro_like="${ID_LIKE:-}"
+
+  case " ${distro_id} ${distro_like} " in
+    *" debian "*|*" ubuntu "*) ;;
+    *)
+      die "Unsupported operating system '${distro_id:-unknown}'. This installer requires Debian or Ubuntu, or a Debian-compatible derivative."
+      ;;
+  esac
+
+  local required_cmd
+  for required_cmd in apt-get apt-cache dpkg; do
+    command -v "$required_cmd" >/dev/null 2>&1 || die "Debian package tool not found: ${required_cmd}."
+  done
+
+  OS_ID="$distro_id"
+  OS_VERSION_ID="${VERSION_ID:-unknown}"
+  OS_ID_LIKE="$distro_like"
+}
+
 validate_install_paths() {
   validate_install_path "--prefix/FMB_PREFIX" "$PREFIX"
   validate_install_path "--bin-dir/FMB_BIN_DIR" "$BIN_DIR"
@@ -152,6 +177,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+check_debian_compliance
 validate_install_paths
 
 SDRPLAY_API_INSTALLER="${SDRPLAY_API_INSTALLER_OVERRIDE:-${BUILD_ROOT}/downloads/SDRplay_RSP_API-Linux-3.15.2.run}"
@@ -327,6 +353,10 @@ print_soapy_extra_plan() {
 print_dry_run() {
   cat <<EOF
 ${APP_NAME} install preflight
+
+Platform:
+  operating system: ${OS_ID} ${OS_VERSION_ID}
+  Debian family:    ${OS_ID_LIKE:-none reported}
 
 Paths:
   repo root:      ${REPO_ROOT}
