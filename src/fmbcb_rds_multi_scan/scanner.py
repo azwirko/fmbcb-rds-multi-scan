@@ -2758,7 +2758,7 @@ def calibrate_chunk_gain(
     chunk_index: int,
 ) -> int:
     """
-    Try all gain values and pick the best calibration gain.
+    Try gain values until two consecutive scores degrade, then pick the best.
 
     Primary score: number of unique validated station PI/frequency pairs.
     Tie-breaker: total raw validated PI decode count across those stations.
@@ -2785,8 +2785,9 @@ def calibrate_chunk_gain(
     best_gain = gain_values[0]
     best_unique_count = -1
     best_raw_decode_count = -1
+    consecutive_degraded = 0
 
-    for order, gain in enumerate(gain_values):
+    for gain in gain_values:
         print(
             f"  Testing gain {gain} for {calibration_duration:.1f}s...",
             file=sys.stderr,
@@ -2822,16 +2823,36 @@ def calibrate_chunk_gain(
             file=sys.stderr,
         )
 
-        if (
+        score_improved = (
             unique_count > best_unique_count
             or (
                 unique_count == best_unique_count
                 and raw_decode_count > best_raw_decode_count
             )
-        ):
+        )
+
+        score_equal = (
+            unique_count == best_unique_count
+            and raw_decode_count == best_raw_decode_count
+        )
+
+        if score_improved:
             best_unique_count = unique_count
             best_raw_decode_count = raw_decode_count
             best_gain = gain
+            consecutive_degraded = 0
+        elif score_equal:
+            consecutive_degraded = 0
+        else:
+            consecutive_degraded += 1
+            if consecutive_degraded >= 2:
+                print(
+                    f"  Stopping calibration after {consecutive_degraded} "
+                    f"consecutive worse gain scores; keeping gain {best_gain} "
+                    f"for chunk {chunk_index}.",
+                    file=sys.stderr,
+                )
+                break
 
     if best_unique_count == 0 and best_raw_decode_count == 0:
         best_gain = max(gain_values)
@@ -2890,8 +2911,8 @@ def calibrate_all_chunk_gains(
 # Gain calibration cache
 # ---------------------------------------------------------------------------
 
-GAIN_CALIBRATION_CACHE_VERSION = 3
-GAIN_CALIBRATION_SCORE_METHOD = "unique_station_count_then_raw_decode_tiebreak_v1"
+GAIN_CALIBRATION_CACHE_VERSION = 4
+GAIN_CALIBRATION_SCORE_METHOD = "unique_station_count_then_raw_decode_tiebreak_early_stop_v1"
 
 
 def gain_calibration_cache_key(
