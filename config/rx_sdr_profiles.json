@@ -11,11 +11,16 @@
         "driver=sdrplay"
       ],
       "sample_rate": [
+        "1m",
         "2m",
         "3m",
         "4m",
         "5m",
-        "6m"
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m"
       ],
       "gain_name": "RFGR",
       "gain_args": [
@@ -34,11 +39,16 @@
         "driver=sdrplay"
       ],
       "sample_rate": [
+        "1m",
         "2m",
         "3m",
         "4m",
         "5m",
-        "6m"
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m"
       ],
       "gain_name": "RFGR",
       "gain_args": [
@@ -58,11 +68,16 @@
         "driver=sdrplay"
       ],
       "sample_rate": [
+        "1m",
         "2m",
         "3m",
         "4m",
         "5m",
-        "6m"
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m"
       ],
       "gain_name": "RFGR",
       "gain_args": [
@@ -78,8 +93,10 @@
         "driver=airspy"
       ],
       "sample_rate": [
+        "2.5m",
         "3m",
-        "6m"
+        "6m",
+        "10m"
       ],
       "gain_args": [
         "-g",
@@ -94,11 +111,21 @@
         "driver=bladerf"
       ],
       "sample_rate": [
+        "1m",
+        "1.92m",
         "2m",
         "3m",
+        "3.84m",
         "4m",
         "5m",
-        "6m"
+        "6m",
+        "7m",
+        "7.68m",
+        "8m",
+        "9m",
+        "10m",
+        "15.36m",
+        "20m"
       ],
       "gain_args": [
         "-g",
@@ -113,11 +140,17 @@
         "driver=hackrf"
       ],
       "sample_rate": [
+        "1m",
         "2m",
         "3m",
         "4m",
         "5m",
-        "6m"
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m",
+        "20m"
       ],
       "gain_args": [
         "-g",
@@ -132,11 +165,17 @@
         "driver=lime"
       ],
       "sample_rate": [
+        "1m",
         "2m",
         "3m",
         "4m",
         "5m",
-        "6m"
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m",
+        "20m"
       ],
       "gain_args": [
         "-g",
@@ -151,11 +190,17 @@
         "driver=miri"
       ],
       "sample_rate": [
+        "1.3m",
         "2m",
+        "2.048m",
         "3m",
         "4m",
         "5m",
-        "6m"
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m"
       ],
       "gain_args": [
         "-g",
@@ -170,11 +215,14 @@
         "driver=rtlsdr"
       ],
       "sample_rate": [
+        "0.9m",
+        "1m",
         "2m",
+        "2.048m",
+        "2.4m",
+        "2.56m",
         "3m",
-        "4m",
-        "5m",
-        "6m"
+        "3.2m"
       ],
       "gain_args": [
         "-g",
@@ -189,11 +237,17 @@
         "driver=uhd"
       ],
       "sample_rate": [
+        "1m",
         "2m",
         "3m",
         "4m",
         "5m",
-        "6m"
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m",
+        "20m"
       ],
       "gain_args": [
         "-g",
@@ -208,11 +262,10 @@
         "driver=airspyhf"
       ],
       "sample_rate": [
-        "2m",
-        "3m",
-        "4m",
-        "5m",
-        "6m"
+        "0.768m",
+        "0.384m",
+        "0.256m",
+        "0.192m"
       ],
       "gain_args": [
         "-g",
@@ -227,11 +280,17 @@
         "driver=plutosdr"
       ],
       "sample_rate": [
+        "1m",
         "2m",
         "3m",
         "4m",
         "5m",
-        "6m"
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m",
+        "20m"
       ],
       "gain_args": [
         "-g",
@@ -246,11 +305,7 @@
         "driver=fcdpp"
       ],
       "sample_rate": [
-        "2m",
-        "3m",
-        "4m",
-        "5m",
-        "6m"
+        "0.192m"
       ],
       "gain_args": [
         "-g",
@@ -265,11 +320,16 @@
         "driver=sdrplay"
       ],
       "sample_rate": [
+        "1m",
         "2m",
         "3m",
         "4m",
         "5m",
-        "6m"
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m"
       ],
       "gain_name": "RFGR",
       "gain_args": [
@@ -288,11 +348,16 @@
         "driver=sdrplay"
       ],
       "sample_rate": [
+        "1m",
         "2m",
         "3m",
         "4m",
         "5m",
-        "6m"
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m"
       ],
       "gain_name": "RFGR",
       "gain_args": [
@@ -311,11 +376,16 @@
         "driver=sdrplay"
       ],
       "sample_rate": [
+        "1m",
         "2m",
         "3m",
         "4m",
         "5m",
-        "6m"
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m"
       ],
       "gain_name": "RFGR",
       "gain_args": [
