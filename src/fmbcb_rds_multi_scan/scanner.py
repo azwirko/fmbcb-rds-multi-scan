@@ -39,7 +39,7 @@ RABBITEARS_MAX_STATIONS_PER_POST = 20
 # decoded station record until this cache interval expires. Local JSONL
 # local JSONL logging is cycle-summarized; this only throttles upload.
 # A station record is keyed by frequency Hz + PI code.
-RABBITEARS_STATION_UPLOAD_CACHE_MINUTES = 30
+RABBITEARS_STATION_UPLOAD_CACHE_MINUTES = 10
 RABBITEARS_STATION_UPLOAD_CACHE: Dict[str, float] = {}
 RABBITEARS_STATION_UPLOAD_CACHE_LOCK = threading.Lock()
 MAX_GAIN_VALUES_PER_CHUNK = 9
