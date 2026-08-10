@@ -1684,7 +1684,7 @@ def print_chunk_station_summary(records: List[Dict]) -> None:
             f"{decimal_lat} "
             f"{decimal_lon} "
             f"count={count} "
-            f"s={signal_dbfs_for_record(record):.2f}",
+            f"dBFS={signal_dbfs_for_record(record):.2f}",
             flush=True,
         )
 
