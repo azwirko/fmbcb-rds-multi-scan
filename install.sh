@@ -744,7 +744,47 @@ install_rx_sdr_profile_config() {
   mkdir -p "$CONFIG_DIR"
 
   if [[ -f "$RX_SDR_PROFILE_CONFIG_FILE" ]]; then
-    warn "Keeping existing rx_sdr profile config: ${RX_SDR_PROFILE_CONFIG_FILE}"
+    warn "Keeping existing rx_sdr profile values and adding any new default profiles: ${RX_SDR_PROFILE_CONFIG_FILE}"
+    local merged_config
+    merged_config="${RX_SDR_PROFILE_CONFIG_FILE}.tmp.$$"
+    if ! python3 - "$RX_SDR_PROFILE_CONFIG_FILE" "$REPO_ROOT/config/rx_sdr_profiles.json" "$merged_config" <<'PYMERGE'
+import json
+import os
+import sys
+
+existing_path, defaults_path, output_path = sys.argv[1:]
+with open(existing_path, encoding="utf-8") as stream:
+    existing = json.load(stream)
+with open(defaults_path, encoding="utf-8") as stream:
+    defaults = json.load(stream)
+
+existing_profiles = existing.setdefault("profiles", {})
+default_profiles = defaults.get("profiles", {})
+for name, profile in default_profiles.items():
+    if name not in existing_profiles:
+        existing_profiles[name] = profile
+
+existing_aliases = existing.setdefault("aliases", {})
+for name, targets in defaults.get("aliases", {}).items():
+    if name not in existing_aliases:
+        existing_aliases[name] = targets
+    elif isinstance(existing_aliases[name], list):
+        for target in targets:
+            if target not in existing_aliases[name]:
+                existing_aliases[name].append(target)
+
+with open(output_path, "w", encoding="utf-8") as stream:
+    json.dump(existing, stream, indent=2)
+    stream.write("\n")
+os.chmod(output_path, 0o644)
+PYMERGE
+    then
+      install -m 0644 "$merged_config" "$RX_SDR_PROFILE_CONFIG_FILE"
+      rm -f "$merged_config"
+    else
+      rm -f "$merged_config"
+      die "Could not merge default rx_sdr profiles into ${RX_SDR_PROFILE_CONFIG_FILE}."
+    fi
     return
   fi
 

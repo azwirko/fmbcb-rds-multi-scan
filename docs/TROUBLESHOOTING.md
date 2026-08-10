@@ -77,8 +77,8 @@ fmbcb-rds-env-check
 ```
 
 If detection succeeds, use the concrete profile reported by
-`fmbcb-rds-multi-scan --probe-rx-sdr`, such as `sdrplay-rsp1a` or
-`sdrplay-rspdx`. The `sdrplay` and `auto` profile names depend on live
+`fmbcb-rds-multi-scan --probe-rx-sdr`, such as `sdrplay-rsp1a`, `sdrplay-rsp1b`, `sdrplay-rsp2`,
+`sdrplay-rspduo`, or `sdrplay-rspdx`. The `sdrplay` and `auto` profile names depend on live
 SoapySDR probing and connected hardware.
 
 `SoapySDRUtil --find=sdrplay` and `--probe="driver=sdrplay"` require connected,

@@ -102,8 +102,8 @@ whether full APT, build-prerequisite APT, or native builds are skipped.
 ## Receiver profile config
 
 The installer seeds `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json` from
-`config/rx_sdr_profiles.json` when the file is missing. It does not overwrite
-an existing file, so local SDR profile edits survive reinstall. Use
+`config/rx_sdr_profiles.json` when the file is missing. On reinstall, it preserves
+existing profile values and adds newly shipped profile names that are absent. Use
 `--config-dir PATH` or `FMB_CONFIG_DIR` to install the editable config somewhere
 else. The installed wrapper exports `FMB_RX_SDR_PROFILES` to point the scanner at
 the configured file.
@@ -240,7 +240,8 @@ fmbcb-rds-env-check
 ```
 
 Use concrete model profiles such as `--rx-sdr sdrplay-rsp1`,
-`--rx-sdr sdrplay-rsp1a`, or `--rx-sdr sdrplay-rspdx` for repeatable scans.
+`--rx-sdr sdrplay-rsp1a`, `--rx-sdr sdrplay-rsp1b`, `--rx-sdr sdrplay-rsp2`,
+`--rx-sdr sdrplay-rspduo`, or `--rx-sdr sdrplay-rspdx` for repeatable scans.
 The `--rx-sdr sdrplay` alias and `--rx-sdr auto` probe connected SoapySDR
 hardware and resolve to a concrete profile when possible. Edit installed
 profiles in `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json`.
