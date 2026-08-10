@@ -62,7 +62,8 @@ Use a concrete SDRplay model profile for repeatable scans. The legacy
 `--rx-sdr sdrplay` alias and `--rx-sdr auto` probe connected SoapySDR hardware
 and resolve to a concrete profile when possible. Receiver profiles are stored in
 `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json` after install; reinstall keeps
-local edits. Gain ranges are probed from `SoapySDRUtil` when possible, and
+local edits and adds newly shipped profile names. Gain ranges are probed from
+`SoapySDRUtil` when possible, and
 automatic calibration uses an `auto` gain step that tests no more than 9 gain
 values per chunk.
 For automatic calibration, a probed maximum is reduced by one because some
@@ -154,8 +155,8 @@ make package
   paths, native dependency repos/refs, SDRplay installer settings, and native
   checkout commits when present.
 - `--rx-sdr` profiles validate `--bandwidth` against their allowed sample-rate
-  list. SDRplay profiles are model-specific, such as `sdrplay-rsp1`,
-  `sdrplay-rsp1a`, and `sdrplay-rspdx`; `sdrplay` and `auto` use
+  list. SDRplay profiles are model-specific, such as `sdrplay-rsp1`, `sdrplay-rsp1a`, `sdrplay-rsp1b`, `sdrplay-rsp2`,
+  `sdrplay-rspduo`, and `sdrplay-rspdx`; `sdrplay` and `auto` use
   `SoapySDRUtil --probe` to resolve connected hardware when possible. Installed
   profiles live in `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json`, with
   `FMB_RX_SDR_PROFILES` available as an override.
