@@ -531,7 +531,9 @@ sdrplay_service_active() {
 
 soapy_sdrplay_module_loaded() {
   have_cmd SoapySDRUtil || return 1
-  SoapySDRUtil --info 2>/dev/null | grep -Eiq 'sdrplay|sdrPlay|SoapySDRPlay'
+  # Do not use grep -q with pipefail: SoapySDRUtil can receive SIGPIPE
+  # after grep finds an early match and make a successful probe look failed.
+  SoapySDRUtil --info 2>&1 | grep -Ei 'sdrplay|sdrPlay|SoapySDRPlay' >/dev/null
 }
 
 install_sdrplay_api() {
@@ -605,7 +607,8 @@ install_sdrplay_support() {
 soapy_module_loaded() {
   local module_name="$1"
   have_cmd SoapySDRUtil || return 1
-  SoapySDRUtil --info 2>/dev/null | grep -Eiq "${module_name}"
+  # Consume all output so pipefail does not turn grep's early exit into SIGPIPE.
+  SoapySDRUtil --info 2>&1 | grep -Ei "${module_name}" >/dev/null
 }
 
 build_soapy_module() {
