@@ -26,11 +26,13 @@ package. The installer:
 For a one-line bootstrap on Debian/Ubuntu, copy and run:
 
 ```bash
-sudo apt-get update && sudo apt-get install -y git ca-certificates && bash -c 'set -Eeuo pipefail; temp_dir=$(mktemp -d); trap "rm -rf \"$temp_dir\"" EXIT; git clone --depth 1 https://github.com/azwirko/fmbcb-rds-multi-scan.git "$temp_dir/fmbcb-rds-multi-scan"; cd "$temp_dir/fmbcb-rds-multi-scan"; sudo ./install.sh'
+sudo apt-get update && sudo apt-get install -y git ca-certificates && bash -c 'set -Eeuo pipefail; temp_dir=$(mktemp -d); trap "rm -rf \"$temp_dir\"" EXIT; git clone --branch v0.2.0 --depth 1 https://github.com/azwirko/fmbcb-rds-multi-scan.git "$temp_dir/fmbcb-rds-multi-scan"; cd "$temp_dir/fmbcb-rds-multi-scan"; sudo ./install.sh'
 ```
 
 The installer verifies that the host is Debian/Ubuntu-family and that
-`apt-get`, `apt-cache`, and `dpkg` are available before it proceeds.
+`apt-get`, `apt-cache`, and `dpkg` are available before it proceeds. This command
+installs the tagged stable release `v0.2.0`; development branch instructions
+are intentionally separate from the stable install path.
 
 For a manual clone workflow:
 
@@ -46,6 +48,30 @@ Then check the install:
 fmbcb-rds-env-check
 fmbcb-rds-multi-scan --help
 ```
+
+## Tested hardware in v0.2.0
+
+The following hardware has been tested with this release. The profile name is
+passed to `--rx-sdr`; hardware-specific USB, network, firmware, and udev setup
+may still be required.
+
+| Hardware | SoapySDR driver/profile |
+| --- | --- |
+| SDRplay RSP1 | `sdrplay-rsp1` |
+| SDRplay RSP1A | `sdrplay-rsp1a` |
+| RTL-SDR | `rtlsdr` |
+| ADALM-Pluto | `plutosdr` |
+| LibreSDR/ZynqSDR | `plutosdr` |
+| LimeSDR Mini | `lime` |
+| Airspy Mini | `airspy` |
+| Airspy HF+ | `airspyhf` |
+| Pluto+ SDR | `plutosdr` |
+| HackRF One | `hackrf` |
+
+This table records hardware tested by the project maintainer; it is not a
+guarantee that every revision, firmware version, host, or sample rate behaves
+identically. Use `fmbcb-rds-multi-scan --probe-rx-sdr` to inspect detected
+SoapySDR hardware before scanning.
 
 ## Example scan
 
