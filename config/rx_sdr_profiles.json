@@ -1,0 +1,412 @@
+{
+  "version": 1,
+  "profiles": {
+    "sdrplay-rsp1": {
+      "driver": "sdrplay",
+      "hardware": [
+        "RSP1"
+      ],
+      "device_args": [
+        "-d",
+        "driver=sdrplay"
+      ],
+      "sample_rate": [
+        "1m",
+        "2m",
+        "3m",
+        "4m",
+        "5m",
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m"
+      ],
+      "gain_name": "RFGR",
+      "gain_args": [
+        "-g",
+        "RFGR="
+      ],
+      "gain_incr": "auto"
+    },
+    "sdrplay-rsp1a": {
+      "driver": "sdrplay",
+      "hardware": [
+        "RSP1A"
+      ],
+      "device_args": [
+        "-d",
+        "driver=sdrplay"
+      ],
+      "sample_rate": [
+        "1m",
+        "2m",
+        "3m",
+        "4m",
+        "5m",
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m"
+      ],
+      "gain_name": "RFGR",
+      "gain_args": [
+        "-g",
+        "RFGR="
+      ],
+      "gain_incr": "auto"
+    },
+    "sdrplay-rspdx": {
+      "driver": "sdrplay",
+      "hardware": [
+        "RSPdx",
+        "RSPdx-R2"
+      ],
+      "device_args": [
+        "-d",
+        "driver=sdrplay"
+      ],
+      "sample_rate": [
+        "1m",
+        "2m",
+        "3m",
+        "4m",
+        "5m",
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m"
+      ],
+      "gain_name": "RFGR",
+      "gain_args": [
+        "-g",
+        "RFGR="
+      ],
+      "gain_incr": "auto"
+    },
+    "airspy": {
+      "driver": "airspy",
+      "device_args": [
+        "-d",
+        "driver=airspy"
+      ],
+      "sample_rate": [
+        "2.5m",
+        "3m",
+        "6m",
+        "10m"
+      ],
+      "gain_args": [
+        "-g",
+        ""
+      ],
+      "gain_incr": "auto"
+    },
+    "bladerf": {
+      "driver": "bladerf",
+      "device_args": [
+        "-d",
+        "driver=bladerf"
+      ],
+      "sample_rate": [
+        "1m",
+        "1.92m",
+        "2m",
+        "3m",
+        "3.84m",
+        "4m",
+        "5m",
+        "6m",
+        "7m",
+        "7.68m",
+        "8m",
+        "9m",
+        "10m",
+        "15.36m",
+        "20m"
+      ],
+      "gain_args": [
+        "-g",
+        ""
+      ],
+      "gain_incr": "auto"
+    },
+    "hackrf": {
+      "driver": "hackrf",
+      "device_args": [
+        "-d",
+        "driver=hackrf"
+      ],
+      "sample_rate": [
+        "1m",
+        "2m",
+        "3m",
+        "4m",
+        "5m",
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m",
+        "20m"
+      ],
+      "gain_args": [
+        "-g",
+        ""
+      ],
+      "gain_incr": "auto"
+    },
+    "lime": {
+      "driver": "lime",
+      "device_args": [
+        "-d",
+        "driver=lime"
+      ],
+      "sample_rate": [
+        "1m",
+        "2m",
+        "3m",
+        "4m",
+        "5m",
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m",
+        "20m"
+      ],
+      "gain_args": [
+        "-g",
+        ""
+      ],
+      "gain_incr": "auto"
+    },
+    "miri": {
+      "driver": "miri",
+      "device_args": [
+        "-d",
+        "driver=miri"
+      ],
+      "sample_rate": [
+        "1.3m",
+        "2m",
+        "2.048m",
+        "3m",
+        "4m",
+        "5m",
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m"
+      ],
+      "gain_args": [
+        "-g",
+        ""
+      ],
+      "gain_incr": "auto"
+    },
+    "rtlsdr": {
+      "driver": "rtlsdr",
+      "device_args": [
+        "-d",
+        "driver=rtlsdr"
+      ],
+      "sample_rate": [
+        "0.9m",
+        "1m",
+        "2m",
+        "2.048m",
+        "2.4m",
+        "2.56m",
+        "3m",
+        "3.2m"
+      ],
+      "gain_args": [
+        "-g",
+        ""
+      ],
+      "gain_incr": "auto"
+    },
+    "uhd": {
+      "driver": "uhd",
+      "device_args": [
+        "-d",
+        "driver=uhd"
+      ],
+      "sample_rate": [
+        "1m",
+        "2m",
+        "3m",
+        "4m",
+        "5m",
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m",
+        "20m"
+      ],
+      "gain_args": [
+        "-g",
+        ""
+      ],
+      "gain_incr": "auto"
+    },
+    "airspyhf": {
+      "driver": "airspyhf",
+      "device_args": [
+        "-d",
+        "driver=airspyhf"
+      ],
+      "sample_rate": [
+        "0.768m",
+        "0.384m",
+        "0.256m",
+        "0.192m"
+      ],
+      "gain_args": [
+        "-g",
+        ""
+      ],
+      "gain_incr": "auto"
+    },
+    "plutosdr": {
+      "driver": "plutosdr",
+      "device_args": [
+        "-d",
+        "driver=plutosdr"
+      ],
+      "sample_rate": [
+        "1m",
+        "2m",
+        "3m",
+        "4m",
+        "5m",
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m",
+        "20m"
+      ],
+      "gain_args": [
+        "-g",
+        ""
+      ],
+      "gain_incr": "auto"
+    },
+    "fcdpp": {
+      "driver": "fcdpp",
+      "device_args": [
+        "-d",
+        "driver=fcdpp"
+      ],
+      "sample_rate": [
+        "0.192m"
+      ],
+      "gain_args": [
+        "-g",
+        ""
+      ],
+      "gain_incr": "auto"
+    },
+    "sdrplay-rsp1b": {
+      "driver": "sdrplay",
+      "device_args": [
+        "-d",
+        "driver=sdrplay"
+      ],
+      "sample_rate": [
+        "1m",
+        "2m",
+        "3m",
+        "4m",
+        "5m",
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m"
+      ],
+      "gain_name": "RFGR",
+      "gain_args": [
+        "-g",
+        "RFGR="
+      ],
+      "gain_incr": "auto",
+      "hardware": [
+        "RSP1B"
+      ]
+    },
+    "sdrplay-rsp2": {
+      "driver": "sdrplay",
+      "device_args": [
+        "-d",
+        "driver=sdrplay"
+      ],
+      "sample_rate": [
+        "1m",
+        "2m",
+        "3m",
+        "4m",
+        "5m",
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m"
+      ],
+      "gain_name": "RFGR",
+      "gain_args": [
+        "-g",
+        "RFGR="
+      ],
+      "gain_incr": "auto",
+      "hardware": [
+        "RSP2"
+      ]
+    },
+    "sdrplay-rspduo": {
+      "driver": "sdrplay",
+      "device_args": [
+        "-d",
+        "driver=sdrplay"
+      ],
+      "sample_rate": [
+        "1m",
+        "2m",
+        "3m",
+        "4m",
+        "5m",
+        "6m",
+        "7m",
+        "8m",
+        "9m",
+        "10m"
+      ],
+      "gain_name": "RFGR",
+      "gain_args": [
+        "-g",
+        "RFGR="
+      ],
+      "gain_incr": "auto",
+      "hardware": [
+        "RSPduo",
+        "RSPduo-R2"
+      ]
+    }
+  },
+  "aliases": {
+    "sdrplay": [
+      "sdrplay-rsp1",
+      "sdrplay-rsp1a",
+      "sdrplay-rspdx",
+      "sdrplay-rsp1b",
+      "sdrplay-rsp2",
+      "sdrplay-rspduo"
+    ]
+  }
+}

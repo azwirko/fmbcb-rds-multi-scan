@@ -6,12 +6,14 @@ import json
 import math
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
 import threading
 import time
 import urllib.request
+from pathlib import Path
 from collections import defaultdict
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -37,9 +39,34 @@ RABBITEARS_MAX_STATIONS_PER_POST = 20
 # decoded station record until this cache interval expires. Local JSONL
 # local JSONL logging is cycle-summarized; this only throttles upload.
 # A station record is keyed by frequency Hz + PI code.
-RABBITEARS_STATION_UPLOAD_CACHE_MINUTES = 30
+RABBITEARS_STATION_UPLOAD_CACHE_MINUTES = 10
 RABBITEARS_STATION_UPLOAD_CACHE: Dict[str, float] = {}
 RABBITEARS_STATION_UPLOAD_CACHE_LOCK = threading.Lock()
+MAX_GAIN_VALUES_PER_CHUNK = 9
+MAX_PI_DECODES_PER_SECOND = 11
+
+
+def calculate_signal_dbfs(decode_count, duration_seconds: float) -> float:
+    """Convert station PI decode coverage into a capped dBFS-like signal value."""
+    try:
+        count = float(decode_count or 0)
+        duration = float(duration_seconds or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+    maximum_count = MAX_PI_DECODES_PER_SECOND * duration
+    if count <= 0 or maximum_count <= 0:
+        return 0.0
+
+    ratio = min(count / maximum_count, 1.0)
+    return round(20.0 * math.log10(ratio), 2)
+
+
+def signal_dbfs_for_record(record: Dict) -> float:
+    return calculate_signal_dbfs(
+        record.get("count", 0),
+        record.get("duration_seconds", 0),
+    )
 
 
 def format_rabbitears_time(record_time_unix=None) -> str:
@@ -231,6 +258,7 @@ def build_single_rabbitears_payload(tuner_key: int, record: Dict) -> Optional[Di
                 frequency_key : {
                     "time" : date_time,
                     "pi_code" : pi_hex,
+                    "s" : signal_dbfs_for_record(record),
                 }
             },
         }
@@ -579,6 +607,7 @@ def build_rabbitears_signal_entry(record: Dict) -> Optional[Tuple[str, Dict, str
         signal_value = {
             "pi_code": int(pi_dec),
             "time": format_rabbitears_time(record.get("time_unix")),
+            "s": signal_dbfs_for_record(record),
         }
 
         return frequency_key, signal_value, station_cache_key
@@ -918,24 +947,388 @@ def terminate_process_tree(proc: Optional[subprocess.Popen], name: str = "proces
 # rx_sdr hardware profiles and gain handling
 # ---------------------------------------------------------------------------
 
-RX_SDR_PROFILES = {
-    "sdrplay": {
-        "device_args": ["-d", "driver=sdrplay"],
-        # rx_sdr wants SDRplay gain as: -g RFGR=<n>
-        "gain_args": ["-g", "RFGR="],
-        "gain_min": 0,
-        "gain_max": 6,
-        "gain_incr": 1,
-    },
-    "rtlsdr": {
-        "device_args": ["-d", "driver=rtlsdr"],
-        # rx_sdr wants RTL-SDR gain as: -g <n>
-        "gain_args": ["-g", ""],
-        "gain_min": 0,
-        "gain_max": 50,
-        "gain_incr": 1,
-    },
-}
+RX_SDR_PROFILE_CONFIG_FILENAMES = [
+    Path(__file__).resolve().parents[2] / "config" / "rx_sdr_profiles.json",
+    Path("/usr/local/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json"),
+    Path("/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json"),
+]
+
+
+def deep_merge_dicts(base: Dict, override: Dict) -> Dict:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge_dicts(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def rx_sdr_profile_config_paths() -> List[Path]:
+    paths = list(RX_SDR_PROFILE_CONFIG_FILENAMES)
+    override = os.environ.get("FMB_RX_SDR_PROFILES")
+    if override:
+        paths.append(Path(override))
+    return paths
+
+
+def load_rx_sdr_profile_config() -> Tuple[Dict[str, Dict], Dict[str, List[str]], List[str]]:
+    profiles: Dict[str, Dict] = {}
+    aliases: Dict[str, List[str]] = {}
+    loaded_paths: List[str] = []
+
+    for path in rx_sdr_profile_config_paths():
+        if not path.exists():
+            continue
+
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                config = json.load(f)
+        except Exception as e:
+            print(f"Warning: could not load rx_sdr profile config {path}: {e}", file=sys.stderr)
+            continue
+
+        config_profiles = config.get("profiles", {})
+        if isinstance(config_profiles, dict):
+            for name, profile in config_profiles.items():
+                key = str(name).strip().lower()
+                if not key or not isinstance(profile, dict):
+                    continue
+                profiles[key] = deep_merge_dicts(profiles.get(key, {}), profile)
+
+        config_aliases = config.get("aliases", {})
+        if isinstance(config_aliases, dict):
+            for alias, targets in config_aliases.items():
+                key = str(alias).strip().lower()
+                if key and isinstance(targets, list):
+                    aliases[key] = [str(target).strip().lower() for target in targets if str(target).strip()]
+
+        loaded_paths.append(str(path))
+
+    return profiles, aliases, loaded_paths
+
+
+RX_SDR_PROFILES, RX_SDR_PROFILE_ALIASES, RX_SDR_PROFILE_CONFIG_LOADED_FROM = load_rx_sdr_profile_config()
+
+
+def get_rx_sdr_choices() -> List[str]:
+    return sorted(set(RX_SDR_PROFILES.keys()) | set(RX_SDR_PROFILE_ALIASES.keys()) | {"auto"})
+
+
+def normalize_hardware_value(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+def profile_matches_hardware(profile: Dict, hardware: str) -> bool:
+    normalized_hardware = normalize_hardware_value(hardware)
+    return any(
+        normalize_hardware_value(str(candidate)) == normalized_hardware
+        for candidate in profile.get("hardware", [])
+    )
+
+
+def extract_soapy_hardware(probe_output: str) -> Optional[str]:
+    for pattern in (
+        r"\bhardware\s*=\s*([^,\]\s]+)",
+        r"\bHardware\s*[:=]\s*([^,\]\s]+)",
+    ):
+        match = re.search(pattern, probe_output)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def gain_names_for_profile(profile: Dict) -> List[str]:
+    names: List[str] = []
+    gain_name = profile.get("gain_name")
+    if isinstance(gain_name, str) and gain_name.strip():
+        names.append(gain_name.strip())
+
+    gain_args = profile.get("gain_args")
+    if isinstance(gain_args, list) and gain_args:
+        suffix = str(gain_args[-1]).strip()
+        if suffix.endswith("=") and suffix[:-1]:
+            names.append(suffix[:-1])
+
+    deduped: List[str] = []
+    for name in names:
+        if name not in deduped:
+            deduped.append(name)
+    return deduped
+
+
+def parse_gain_range_from_line(line: str) -> Optional[Tuple[int, int]]:
+    lower = line.lower()
+    if not any(token in lower for token in ("gain", "range", "[", "minimum", "maximum", "min", "max")):
+        return None
+
+    bracket_match = re.search(r"\[\s*([-+]?\d+(?:\.\d+)?)\s*,\s*([-+]?\d+(?:\.\d+)?)\s*\]", line)
+    if bracket_match:
+        low = int(math.floor(float(bracket_match.group(1))))
+        high = int(math.ceil(float(bracket_match.group(2))))
+        return (low, high) if low <= high else (high, low)
+
+    minmax_match = re.search(
+        r"(?:min(?:imum)?)[^\d+-]*([-+]?\d+(?:\.\d+)?).*?(?:max(?:imum)?)[^\d+-]*([-+]?\d+(?:\.\d+)?)",
+        line,
+        flags=re.IGNORECASE,
+    )
+    if minmax_match:
+        low = int(math.floor(float(minmax_match.group(1))))
+        high = int(math.ceil(float(minmax_match.group(2))))
+        return (low, high) if low <= high else (high, low)
+
+    numbers = re.findall(r"[-+]?\d+(?:\.\d+)?", line)
+    if len(numbers) < 2:
+        return None
+
+    low = int(math.floor(float(numbers[-2])))
+    high = int(math.ceil(float(numbers[-1])))
+    if high < low:
+        low, high = high, low
+    return low, high
+
+
+def extract_soapy_gain_range(probe_output: str, gain_names: Optional[List[str]] = None) -> Optional[Tuple[int, int]]:
+    lines = probe_output.splitlines()
+    normalized_names = [name.lower() for name in gain_names or [] if name]
+
+    for name in normalized_names:
+        for line in lines:
+            if name not in line.lower():
+                continue
+            parsed = parse_gain_range_from_line(line)
+            if parsed is not None:
+                return parsed
+
+    for line in lines:
+        if "gain" not in line.lower():
+            continue
+        parsed = parse_gain_range_from_line(line)
+        if parsed is not None:
+            return parsed
+
+    return None
+
+
+def get_probed_gain_range(profile: Dict) -> Optional[Tuple[int, int]]:
+    driver = profile.get("driver")
+    if not driver:
+        return None
+
+    try:
+        code, output = run_soapy_probe(str(driver))
+    except (OSError, subprocess.TimeoutExpired, ValueError) as e:
+        print(f"Warning: could not probe gain range for driver={driver}: {e}", file=sys.stderr)
+        return None
+
+    if code != 0:
+        first_line = output.strip().splitlines()[0] if output.strip() else f"exit {code}"
+        print(f"Warning: could not probe gain range for driver={driver}: {first_line}", file=sys.stderr)
+        return None
+
+    return extract_soapy_gain_range(output, gain_names_for_profile(profile))
+
+
+def get_profile_gain_range(
+    profile: Dict,
+    rx_sdr_name: str,
+    require_range: bool = False,
+    calibration: bool = False,
+) -> Optional[Tuple[int, int]]:
+    probed_range = get_probed_gain_range(profile)
+    if probed_range is not None:
+        if calibration:
+            gain_min, gain_max = probed_range
+            adjusted_gain_max = gain_max - 1
+            if adjusted_gain_max < gain_min:
+                raise ValueError(
+                    f"SoapySDRUtil reported an unusable calibration gain range for "
+                    f"--rx-sdr {rx_sdr_name}: {gain_min}..{gain_max}."
+                )
+            print(
+                f"Gain calibration: using probed maximum {adjusted_gain_max} "
+                f"instead of reported maximum {gain_max} for {rx_sdr_name}.",
+                file=sys.stderr,
+            )
+            return gain_min, adjusted_gain_max
+        return probed_range
+
+    gain_min = profile.get("gain_min")
+    gain_max = profile.get("gain_max")
+    if gain_min is not None and gain_max is not None:
+        return int(gain_min), int(gain_max)
+
+    if require_range:
+        raise ValueError(
+            f"--rx-sdr {rx_sdr_name} does not have a usable gain range. "
+            "Connect hardware so SoapySDRUtil can probe gain limits, or add "
+            "gain_min/gain_max overrides to the rx_sdr profile config file."
+        )
+
+    return None
+
+
+def calculate_auto_gain_incr(gain_min: int, gain_max: int) -> int:
+    span = int(gain_max) - int(gain_min)
+    if span <= 0:
+        return 1
+    return max(1, int(math.ceil(span / float(MAX_GAIN_VALUES_PER_CHUNK - 1))))
+
+
+def expand_gain_values(gain_min: int, gain_max: int, gain_incr: int) -> List[int]:
+    values = list(range(int(gain_min), int(gain_max) + 1, int(gain_incr)))
+    if not values or values[-1] != int(gain_max):
+        values.append(int(gain_max))
+    return sorted(dict.fromkeys(values))
+
+
+def run_soapy_probe(driver: str, timeout: float = 8.0) -> Tuple[int, str]:
+    if not shutil.which("SoapySDRUtil"):
+        raise ValueError("SoapySDRUtil was not found; install SoapySDR tools or use a concrete --rx-sdr profile.")
+
+    proc = subprocess.run(
+        ["SoapySDRUtil", f"--probe=driver={driver}"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+
+
+def candidate_profiles_for_rx_sdr(rx_sdr_name: str) -> List[str]:
+    if rx_sdr_name == "auto":
+        return sorted(RX_SDR_PROFILES.keys())
+    if rx_sdr_name in RX_SDR_PROFILE_ALIASES:
+        return RX_SDR_PROFILE_ALIASES[rx_sdr_name]
+    if rx_sdr_name in RX_SDR_PROFILES:
+        return [rx_sdr_name]
+    return []
+
+
+def resolve_rx_sdr_profile_name(rx_sdr_name: str) -> str:
+    requested = rx_sdr_name.strip().lower()
+
+    if requested in RX_SDR_PROFILES:
+        return requested
+
+    candidates = candidate_profiles_for_rx_sdr(requested)
+    if not candidates:
+        supported = ", ".join(get_rx_sdr_choices())
+        raise ValueError(f"Unsupported --rx-sdr '{rx_sdr_name}'. Supported values: {supported}")
+
+    drivers = sorted({str(RX_SDR_PROFILES[name].get("driver", name)) for name in candidates})
+    matches: List[Tuple[str, str]] = []
+    probe_errors: List[str] = []
+
+    for driver in drivers:
+        try:
+            code, output = run_soapy_probe(driver)
+        except (OSError, subprocess.TimeoutExpired, ValueError) as e:
+            probe_errors.append(f"{driver}: {e}")
+            continue
+
+        if code != 0:
+            first_line = output.strip().splitlines()[0] if output.strip() else f"exit {code}"
+            probe_errors.append(f"{driver}: {first_line}")
+            continue
+
+        hardware = extract_soapy_hardware(output)
+        driver_candidates = [
+            name for name in candidates if RX_SDR_PROFILES[name].get("driver") == driver
+        ]
+
+        if hardware:
+            for name in driver_candidates:
+                if profile_matches_hardware(RX_SDR_PROFILES[name], hardware):
+                    matches.append((name, hardware))
+        elif len(driver_candidates) == 1:
+            matches.append((driver_candidates[0], "unknown"))
+
+    if len(matches) == 1:
+        profile_name, hardware = matches[0]
+        print(
+            f"Detected --rx-sdr {profile_name}"
+            + (f" from SoapySDR hardware={hardware}." if hardware != "unknown" else "."),
+            file=sys.stderr,
+        )
+        return profile_name
+
+    if len(matches) > 1:
+        detected = ", ".join(f"{name} ({hardware})" for name, hardware in matches)
+        raise ValueError(
+            f"--rx-sdr {rx_sdr_name} matched multiple devices: {detected}. "
+            "Use a concrete --rx-sdr profile."
+        )
+
+    detail = "; ".join(probe_errors) if probe_errors else "no matching SoapySDR hardware reported"
+    raise ValueError(
+        f"Could not auto-resolve --rx-sdr {rx_sdr_name}: {detail}. "
+        f"Use one of: {', '.join(candidates)}"
+    )
+
+
+def print_rx_sdr_profiles() -> None:
+    loaded_from = ", ".join(RX_SDR_PROFILE_CONFIG_LOADED_FROM) or "no profile config loaded"
+    print(f"rx_sdr profile config: {loaded_from}")
+    print("Supported rx_sdr profiles:")
+    for name in sorted(RX_SDR_PROFILES.keys()):
+        profile = RX_SDR_PROFILES[name]
+        hardware = ", ".join(profile.get("hardware", [])) or "-"
+        sample_rates = ", ".join(profile.get("sample_rate", [])) or "-"
+        gain_args = " ".join(profile.get("gain_args", [])) or "-"
+        gain_min = profile.get("gain_min")
+        gain_max = profile.get("gain_max")
+        gain_range = f"{gain_min}..{gain_max}" if gain_min is not None and gain_max is not None else "probe"
+        gain_incr = profile.get("gain_incr", "auto")
+        print(
+            f"  {name}\n"
+            f"    driver: {profile.get('driver', '-')}\n"
+            f"    hardware: {hardware}\n"
+            f"    rx_sdr args: {' '.join(profile.get('device_args', []))}\n"
+            f"    gain: {gain_args}<value>, range {gain_range}, step {gain_incr}\n"
+            f"    sample rates: {sample_rates}"
+        )
+
+    if RX_SDR_PROFILE_ALIASES:
+        print("\nAliases:")
+        for alias, targets in sorted(RX_SDR_PROFILE_ALIASES.items()):
+            print(f"  {alias}: auto-detects one of {', '.join(targets)}")
+    print("  auto: probes supported drivers and selects the detected concrete profile")
+
+
+def print_rx_sdr_probe() -> int:
+    print_rx_sdr_profiles()
+    print("\nDetected SDR devices:")
+
+    any_detected = False
+    for driver in sorted({str(profile.get("driver", name)) for name, profile in RX_SDR_PROFILES.items()}):
+        try:
+            code, output = run_soapy_probe(driver)
+        except (OSError, subprocess.TimeoutExpired, ValueError) as e:
+            print(f"  {driver}: probe failed: {e}")
+            continue
+
+        if code != 0:
+            first_line = output.strip().splitlines()[0] if output.strip() else f"exit {code}"
+            print(f"  {driver}: not detected ({first_line})")
+            continue
+
+        any_detected = True
+        hardware = extract_soapy_hardware(output) or "unknown"
+        matching_profiles = [
+            name
+            for name, profile in sorted(RX_SDR_PROFILES.items())
+            if profile.get("driver") == driver
+            and (not profile.get("hardware") or profile_matches_hardware(profile, hardware))
+        ]
+        profile_text = ", ".join(matching_profiles) if matching_profiles else "no matching profile"
+        gain_range = extract_soapy_gain_range(output)
+        gain_text = f"; gain_range={gain_range[0]}..{gain_range[1]}" if gain_range else ""
+        print(f"  {driver}: hardware={hardware}; profile={profile_text}{gain_text}")
+
+    return 0 if any_detected else 1
 
 
 def build_gain_args_from_profile(profile: Dict, gain_value: int, rx_sdr_name: str) -> List[str]:
@@ -991,20 +1384,22 @@ def build_rx_sdr_hardware_args_for_gain(args, gain_value: Optional[int]) -> List
         rx_args.extend(profile.get("device_args", []))
 
         if gain_value is not None:
-            gain_min = profile.get("gain_min")
-            gain_max = profile.get("gain_max")
+            gain_range = get_profile_gain_range(profile, rx_sdr_name, require_range=False)
 
-            if gain_min is not None and gain_value < gain_min:
-                raise ValueError(
-                    f"Gain {gain_value} is below valid range for {rx_sdr_name}: "
-                    f"{gain_min}–{gain_max}"
-                )
+            if gain_range is not None:
+                gain_min, gain_max = gain_range
 
-            if gain_max is not None and gain_value > gain_max:
-                raise ValueError(
-                    f"Gain {gain_value} is above valid range for {rx_sdr_name}: "
-                    f"{gain_min}–{gain_max}"
-                )
+                if gain_value < gain_min:
+                    raise ValueError(
+                        f"Gain {gain_value} is below valid range for {rx_sdr_name}: "
+                        f"{gain_min}–{gain_max}"
+                    )
+
+                if gain_value > gain_max:
+                    raise ValueError(
+                        f"Gain {gain_value} is above valid range for {rx_sdr_name}: "
+                        f"{gain_min}–{gain_max}"
+                    )
 
             rx_args.extend(build_gain_args_from_profile(profile, gain_value, rx_sdr_name))
 
@@ -1015,6 +1410,57 @@ def build_rx_sdr_hardware_args_for_gain(args, gain_value: Optional[int]) -> List
         rx_args.extend(args.rx_arg)
 
     return rx_args
+
+
+def get_sample_rates_for_profile(profile: Dict, rx_sdr_name: str) -> List[int]:
+    """Return the allowed sample rates for an rx_sdr profile as integer Hz."""
+    sample_rates = profile.get("sample_rate")
+
+    if sample_rates is None:
+        return []
+
+    if not isinstance(sample_rates, list) or not all(isinstance(item, str) for item in sample_rates):
+        raise ValueError(
+            f"Invalid sample_rate profile for --rx-sdr {rx_sdr_name}; "
+            "expected a list of strings."
+        )
+
+    parsed_rates: List[int] = []
+    for sample_rate in sample_rates:
+        try:
+            parsed_rates.append(int(round(parse_freq(sample_rate))))
+        except ValueError as e:
+            raise ValueError(
+                f"Invalid sample_rate value for --rx-sdr {rx_sdr_name}: {sample_rate}"
+            ) from e
+
+    return parsed_rates
+
+
+def validate_rx_sdr_sample_rate(args, bandwidth_hz: float) -> None:
+    """Validate --bandwidth against the selected rx_sdr profile sample rates."""
+    rx_sdr_name = args.rx_sdr.strip().lower() if getattr(args, "rx_sdr", None) else ""
+
+    if not rx_sdr_name:
+        return
+
+    profile = RX_SDR_PROFILES.get(rx_sdr_name)
+
+    if profile is None:
+        supported = ", ".join(sorted(RX_SDR_PROFILES.keys()))
+        raise ValueError(f"Unsupported --rx-sdr '{args.rx_sdr}'. Supported values: {supported}")
+
+    allowed_rates = get_sample_rates_for_profile(profile, rx_sdr_name)
+    if not allowed_rates:
+        return
+
+    requested_rate = int(round(bandwidth_hz))
+    if requested_rate not in allowed_rates:
+        allowed_values = ", ".join(profile["sample_rate"])
+        raise ValueError(
+            f"--bandwidth {args.bandwidth} is not supported for --rx-sdr {rx_sdr_name}. "
+            f"Allowed exact sample rates: {allowed_values}"
+        )
 
 
 def get_gain_values_for_profile(args) -> List[int]:
@@ -1029,17 +1475,33 @@ def get_gain_values_for_profile(args) -> List[int]:
     if profile is None:
         raise ValueError(f"Unsupported --rx-sdr '{args.rx_sdr}'.")
 
-    gain_min = profile.get("gain_min")
-    gain_max = profile.get("gain_max")
-    gain_incr = profile.get("gain_incr", 1)
+    gain_min, gain_max = get_profile_gain_range(
+        profile,
+        rx_sdr_name,
+        require_range=True,
+        calibration=True,
+    )
 
-    if gain_min is None or gain_max is None:
-        raise ValueError(f"--rx-sdr {rx_sdr_name} does not define a gain range.")
+    if getattr(args, "gain_calibration_incr", None) is not None:
+        gain_incr = int(args.gain_calibration_incr)
+    else:
+        profile_gain_incr = profile.get("gain_incr", "auto")
+        if isinstance(profile_gain_incr, str) and profile_gain_incr.strip().lower() == "auto":
+            gain_incr = calculate_auto_gain_incr(gain_min, gain_max)
+        else:
+            gain_incr = int(profile_gain_incr)
 
     if int(gain_incr) <= 0:
         raise ValueError(f"--rx-sdr {rx_sdr_name} has invalid gain_incr={gain_incr}.")
 
-    return list(range(int(gain_min), int(gain_max) + 1, int(gain_incr)))
+    values = expand_gain_values(gain_min, gain_max, gain_incr)
+    print(
+        f"Gain calibration range for {rx_sdr_name}: {gain_min}..{gain_max}, "
+        f"step {gain_incr}, testing {len(values)} value(s): "
+        + ", ".join(str(value) for value in values),
+        file=sys.stderr,
+    )
+    return values
 
 
 def count_total_raw_station_decodes(records: List[Dict]) -> int:
@@ -1221,7 +1683,8 @@ def print_chunk_station_summary(records: List[Dict]) -> None:
             f"{state} "
             f"{decimal_lat} "
             f"{decimal_lon} "
-            f"count={count}",
+            f"count={count} "
+            f"dBFS={signal_dbfs_for_record(record):.2f}",
             flush=True,
         )
 
@@ -1246,6 +1709,7 @@ def build_log_record_from_station_record(record: Dict) -> Dict:
         "state": record.get("state", ""),
         "location": record.get("location", ""),
         "count": record.get("count", 0),
+        "s": signal_dbfs_for_record(record),
         "cycle": record.get("cycle", ""),
         "time_unix": time_unix_value,
     }
@@ -1861,16 +2325,16 @@ def build_branch_pipeline(
     # shift = -(target - center) / sample_rate
     shift = -offset_hz / bandwidth_hz
 
-    # decim = max(1, int(round(bandwidth_hz / channel_rate_hz)))
-    decim = max(1, int(round(bandwidth_hz / redsea_rate_hz)))
+    decim = max(1, int(round(bandwidth_hz / channel_rate_hz)))
     post_decim_rate = bandwidth_hz / decim
     fractional_decim = post_decim_rate / redsea_rate_hz
+    transition_width = 50000.0 / bandwidth_hz
 
     return [
         ["csdr", "shift_addition_cc", f"{shift:.12f}"],
-        ["csdr", "fir_decimate_cc", str(decim), "0.02", "HAMMING"],
+        ["csdr", "fir_decimate_cc", str(decim), f"{transition_width:.12f}", "HAMMING"],
         ["csdr", "fmdemod_quadri_cf"],
-        # ["csdr", "fractional_decimator_ff", f"{fractional_decim:.12f}"],
+        ["csdr", "fractional_decimator_ff", f"{fractional_decim:.12f}"],
         ["csdr", "convert_f_i16"],
         ["redsea", "-r", f"{int(round(redsea_rate_hz))}"],
     ]
@@ -1910,6 +2374,7 @@ class SharedPiState:
             chunk_index: int,
             center_hz: float,
             freq_match_tolerance_hz: float,
+            duration_seconds: float,
             upload_buffer: Optional[CycleUploadBuffer] = None,
     ):
         self.output_file = output_file
@@ -1920,6 +2385,7 @@ class SharedPiState:
         self.chunk_index = chunk_index
         self.center_hz = center_hz
         self.freq_match_tolerance_hz = freq_match_tolerance_hz
+        self.duration_seconds = duration_seconds
         self.upload_buffer = upload_buffer
         self.lock = threading.Lock()
 
@@ -1995,6 +2461,8 @@ class SharedPiState:
                 "frequency_mhz": round(target_hz / 1_000_000, 6),
                 "pi": pi,
                 "count": count,
+                "duration_seconds": self.duration_seconds,
+                "s": calculate_signal_dbfs(count, self.duration_seconds),
                 "validated_against_database": True,
                 "freq_match_tolerance_hz": self.freq_match_tolerance_hz,
                 "call_sign": call_sign,
@@ -2202,6 +2670,7 @@ def run_scan_chunk(
                 chunk_index=chunk_index,
                 center_hz=center_hz,
                 freq_match_tolerance_hz=args.freq_match_tolerance,
+                duration_seconds=effective_duration,
                 upload_buffer=local_capture_buffer,
             )
 
@@ -2321,7 +2790,7 @@ def calibrate_chunk_gain(
     chunk_index: int,
 ) -> int:
     """
-    Try all gain values and pick the best calibration gain.
+    Try gain values until two consecutive scores degrade, then pick the best.
 
     Primary score: number of unique validated station PI/frequency pairs.
     Tie-breaker: total raw validated PI decode count across those stations.
@@ -2348,8 +2817,9 @@ def calibrate_chunk_gain(
     best_gain = gain_values[0]
     best_unique_count = -1
     best_raw_decode_count = -1
+    consecutive_degraded = 0
 
-    for order, gain in enumerate(gain_values):
+    for gain in gain_values:
         print(
             f"  Testing gain {gain} for {calibration_duration:.1f}s...",
             file=sys.stderr,
@@ -2385,16 +2855,44 @@ def calibrate_chunk_gain(
             file=sys.stderr,
         )
 
-        if (
+        score_improved = (
             unique_count > best_unique_count
             or (
                 unique_count == best_unique_count
                 and raw_decode_count > best_raw_decode_count
             )
-        ):
+        )
+
+        score_equal = (
+            unique_count == best_unique_count
+            and raw_decode_count == best_raw_decode_count
+        )
+
+        if score_improved:
             best_unique_count = unique_count
             best_raw_decode_count = raw_decode_count
             best_gain = gain
+            consecutive_degraded = 0
+        elif score_equal:
+            consecutive_degraded = 0
+        else:
+            consecutive_degraded += 1
+            if consecutive_degraded >= 2:
+                print(
+                    f"  Stopping calibration after {consecutive_degraded} "
+                    f"consecutive worse gain scores; keeping gain {best_gain} "
+                    f"for chunk {chunk_index}.",
+                    file=sys.stderr,
+                )
+                break
+
+    if best_unique_count == 0 and best_raw_decode_count == 0:
+        best_gain = max(gain_values)
+        print(
+            f"  No stations detected for any tested gain; "
+            f"using maximum tested gain {best_gain} for chunk {chunk_index}.",
+            file=sys.stderr,
+        )
 
     print(
         f"Selected gain {best_gain} for chunk {chunk_index} "
@@ -2445,8 +2943,8 @@ def calibrate_all_chunk_gains(
 # Gain calibration cache
 # ---------------------------------------------------------------------------
 
-GAIN_CALIBRATION_CACHE_VERSION = 3
-GAIN_CALIBRATION_SCORE_METHOD = "unique_station_count_then_raw_decode_tiebreak_v1"
+GAIN_CALIBRATION_CACHE_VERSION = 4
+GAIN_CALIBRATION_SCORE_METHOD = "unique_station_count_then_raw_decode_tiebreak_early_stop_v1"
 
 
 def gain_calibration_cache_key(
@@ -2644,17 +3142,9 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--center",
-        help=(
-            "Optional SDR center frequency, e.g. 100M. "
-            "If omitted, the full FM band is scanned in bandwidth-sized chunks."
-        ),
-    )
-
-    parser.add_argument(
         "--bandwidth",
         required=True,
-        help="rx_sdr sample rate / capture bandwidth, e.g. 5M",
+        help="rx_sdr sample rate / capture bandwidth, e.g. 5M. Must match the selected --rx-sdr profile sample_rate list.",
     )
 
     parser.add_argument(
@@ -2671,31 +3161,20 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--min-pi-count",
-        type=int,
-        default=3,
-        help="Minimum number of times a PI code must be seen on a frequency before output. Default: 3",
-    )
-
-    parser.add_argument(
-        "--targets",
+        "--rx-sdr",
+        required=True,
+        choices=get_rx_sdr_choices(),
         help=(
-            "Optional comma-separated FM target list. "
-            "Example: --targets 99.5M,100.3M,101.1M. "
-            "Only valid when --center is supplied."
+            "SDR hardware profile to use for rx_sdr device selection. "
+            "Use a concrete model such as sdrplay-rsp1a, or use sdrplay/auto "
+            "to probe connected SoapySDR hardware."
         ),
     )
 
     parser.add_argument(
-        "--spacing",
-        default="200k",
-        help="FM channel spacing. Default: 200k",
-    )
-
-    parser.add_argument(
-        "--grid-base",
-        default="88.1M",
-        help="FM grid base frequency for single-center auto target generation. Default: 88.1M",
+        "--band-end",
+        default="107.9M",
+        help="Top FM broadcast channel for automatic band scan. Default: 107.9M",
     )
 
     parser.add_argument(
@@ -2705,9 +3184,24 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--band-end",
-        default="107.9M",
-        help="Top FM broadcast channel for automatic band scan. Default: 107.9M",
+        "--center",
+        help=(
+            "Optional SDR center frequency, e.g. 100M. "
+            "If omitted, the full FM band is scanned in bandwidth-sized chunks."
+        ),
+    )
+
+    parser.add_argument(
+        "--channel-rate",
+        default="384k",
+        help="Intermediate single-channel complex rate after decimation. Default: 384k",
+    )
+
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=65536,
+        help="Number of bytes read from rx_sdr per loop. Default: 262144",
     )
 
     parser.add_argument(
@@ -2721,61 +3215,37 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--channel-rate",
-        default="500k",
-        help="Intermediate single-channel complex rate after decimation. Default: 500k",
-    )
-
-    parser.add_argument(
-        "--redsea-rate",
-        default="166666",
-        help="MPX sample rate sent to redsea. Default: 171k",
-    )
-
-    parser.add_argument(
-        "--chunk-size",
-        type=int,
-        default=65536,
-        help="Number of bytes read from rx_sdr per loop. Default: 262144",
-    )
-
-    parser.add_argument(
-        "--no-echo",
-        action="store_true",
-        help="Do not print confirmed PI codes to terminal; only append JSONL output.",
-    )
-
-    parser.add_argument(
-        "--show-command",
-        action="store_true",
-        help="Print generated rx_sdr and csdr/redsea pipelines.",
-    )
-
-    parser.add_argument(
-        "--rx-sdr",
-        choices=sorted(RX_SDR_PROFILES.keys()),
+        "--device-release-delay",
+        type=float,
+        default=2.0,
         help=(
-            "SDR hardware profile to use for rx_sdr device selection. "
-            "Example: --rx-sdr sdrplay expands to -d driver=sdrplay."
+            "Seconds to wait after each chunk before starting the next rx_sdr process. "
+            "Useful when the SDR device needs time to release. Default: 2.0"
         ),
     )
 
     parser.add_argument(
-        "--rx-gain",
-        type=int,
+        "--force-gain-calibration",
+        action="store_true",
         help=(
-            "Fixed SDR gain value using the selected --rx-sdr profile. "
-            "For --rx-sdr sdrplay this expands to -g RFGR=<value>, valid range 0–6. "
-            "If omitted, full-band mode can calibrate the best gain per chunk."
+            "Force automatic per-chunk gain calibration to rerun at startup and "
+            "overwrite the saved calibration entry for this SDR/bandwidth/chunk layout."
         ),
     )
 
     parser.add_argument(
-        "--skip-gain-calibration",
+        "--force-pi-update",
         action="store_true",
+        help="Force download and CSV regeneration of the PI-code database.",
+    )
+
+    parser.add_argument(
+        "--freq-match-tolerance",
+        type=float,
+        default=1000.0,
         help=(
-            "Skip automatic per-chunk gain calibration when --rx-gain is omitted. "
-            "If omitted and --rx-gain is not set, the app calibrates gain per chunk."
+            "Allowed Hz difference between decoded FM channel and database frequency. "
+            "Default: 1000 Hz."
         ),
     )
 
@@ -2785,6 +3255,24 @@ def main() -> int:
         help=(
             "Seconds to scan each gain during automatic gain calibration. "
             "Default: same as --duration."
+        ),
+    )
+
+    parser.add_argument(
+        "--gain-calibration-file",
+        default="rds_gain_calibration.json",
+        help=(
+            "JSON file used to save and reload automatic per-chunk gain calibration data. "
+            "Default: rds_gain_calibration.json"
+        ),
+    )
+
+    parser.add_argument(
+        "--gain-calibration-incr",
+        type=int,
+        help=(
+            "Override the selected --rx-sdr profile gain_incr during automatic "
+            "initial or forced gain calibration."
         ),
     )
 
@@ -2799,38 +3287,34 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--force-gain-calibration",
+        "--grid-base",
+        default="88.1M",
+        help="FM grid base frequency for single-center auto target generation. Default: 88.1M",
+    )
+
+    parser.add_argument(
+        "--min-pi-count",
+        type=int,
+        default=3,
+        help="Minimum number of times a PI code must be seen on a frequency before output. Default: 3",
+    )
+
+    parser.add_argument(
+        "--list-rx-sdr",
         action="store_true",
-        help=(
-            "Force automatic per-chunk gain calibration to rerun at startup and "
-            "overwrite the saved calibration entry for this SDR/bandwidth/chunk layout."
-        ),
+        help="List modeled rx_sdr hardware profiles and aliases, then exit.",
     )
 
     parser.add_argument(
-        "--gain-calibration-file",
-        default="rds_gain_calibration.json",
-        help=(
-            "JSON file used to save and reload automatic per-chunk gain calibration data. "
-            "Default: rds_gain_calibration.json"
-        ),
+        "--probe-rx-sdr",
+        action="store_true",
+        help="Probe connected SoapySDR devices, show matching rx_sdr profiles, then exit.",
     )
 
     parser.add_argument(
-        "--rx-arg",
-        action="append",
-        default=[],
-        help=(
-            "Advanced extra argument to pass directly to rx_sdr. "
-            "Use --rx-sdr for device selection and --rx-gain for gain. "
-            "Use this only for additional rx_sdr options not modeled by the app."
-        ),
-    )
-
-    parser.add_argument(
-        "--pi-url",
-        default=PI_CODES_URL,
-        help=f"NRSC PI-code database URL. Default: {PI_CODES_URL}",
+        "--no-echo",
+        action="store_true",
+        help="Do not print confirmed PI codes to terminal; only append JSONL output.",
     )
 
     parser.add_argument(
@@ -2852,32 +3336,36 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--skip-pi-update",
-        action="store_true",
-        help="Do not check/download the online PI-code database; use existing local CSV.",
+        "--pi-url",
+        default=PI_CODES_URL,
+        help=f"NRSC PI-code database URL. Default: {PI_CODES_URL}",
     )
 
     parser.add_argument(
-        "--force-pi-update",
-        action="store_true",
-        help="Force download and CSV regeneration of the PI-code database.",
+        "--redsea-rate",
+        default="171k",
+        help="MPX sample rate sent to redsea. Default: 171k",
     )
 
     parser.add_argument(
-        "--device-release-delay",
-        type=float,
-        default=2.0,
+        "--rx-arg",
+        action="append",
+        default=[],
         help=(
-            "Seconds to wait after each chunk before starting the next rx_sdr process. "
-            "Useful when the SDR device needs time to release. Default: 2.0"
+            "Advanced extra argument to pass directly to rx_sdr. "
+            "Use --rx-sdr for device selection and --rx-gain for gain. "
+            "Use this only for additional rx_sdr options not modeled by the app."
         ),
     )
 
     parser.add_argument(
-        "--rx-start-retries",
+        "--rx-gain",
         type=int,
-        default=3,
-        help="Number of times to retry starting rx_sdr if it exits immediately. Default: 3",
+        help=(
+            "Fixed SDR gain value using the selected --rx-sdr profile. "
+            "For SDRplay model profiles this expands to -g RFGR=<value>. "
+            "If omitted, full-band mode can calibrate the best gain per chunk."
+        ),
     )
 
     parser.add_argument(
@@ -2888,12 +3376,45 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--freq-match-tolerance",
-        type=float,
-        default=1000.0,
+        "--rx-start-retries",
+        type=int,
+        default=3,
+        help="Number of times to retry starting rx_sdr if it exits immediately. Default: 3",
+    )
+
+    parser.add_argument(
+        "--show-command",
+        action="store_true",
+        help="Print generated rx_sdr and csdr/redsea pipelines.",
+    )
+
+    parser.add_argument(
+        "--skip-gain-calibration",
+        action="store_true",
         help=(
-            "Allowed Hz difference between decoded FM channel and database frequency. "
-            "Default: 1000 Hz."
+            "Skip automatic per-chunk gain calibration when --rx-gain is omitted. "
+            "If omitted and --rx-gain is not set, the app calibrates gain per chunk."
+        ),
+    )
+
+    parser.add_argument(
+        "--skip-pi-update",
+        action="store_true",
+        help="Do not check/download the online PI-code database; use existing local CSV.",
+    )
+
+    parser.add_argument(
+        "--spacing",
+        default="200k",
+        help="FM channel spacing. Default: 200k",
+    )
+
+    parser.add_argument(
+        "--targets",
+        help=(
+            "Optional comma-separated FM target list. "
+            "Example: --targets 99.5M,100.3M,101.1M. "
+            "Only valid when --center is supplied."
         ),
     )
 
@@ -2907,10 +3428,16 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--upload-timeout",
+        "--upload-debug",
+        action="store_true",
+        help="Print each RabbitEars single-record JSON payload before compression.",
+    )
+
+    parser.add_argument(
+        "--upload-per-record-delay",
         type=float,
-        default=20.0,
-        help="RabbitEars upload timeout in seconds. Default: 20.",
+        default=0.5,
+        help="Delay in seconds between individual RabbitEars record uploads. Default: 0.5.",
     )
 
     parser.add_argument(
@@ -2928,19 +3455,26 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--upload-debug",
-        action="store_true",
-        help="Print each RabbitEars single-record JSON payload before compression.",
+        "--upload-timeout",
+        type=float,
+        default=20.0,
+        help="RabbitEars upload timeout in seconds. Default: 20.",
     )
 
-    parser.add_argument(
-        "--upload-per-record-delay",
-        type=float,
-        default=0.5,
-        help="Delay in seconds between individual RabbitEars record uploads. Default: 0.5.",
-    )
+    if "--list-rx-sdr" in sys.argv[1:]:
+        print_rx_sdr_profiles()
+        return 0
+
+    if "--probe-rx-sdr" in sys.argv[1:]:
+        return print_rx_sdr_probe()
 
     args = parser.parse_args()
+
+    try:
+        args.rx_sdr = resolve_rx_sdr_profile_name(args.rx_sdr)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 2
 
     if args.duration <= 0:
         print("Error: --duration must be greater than zero.", file=sys.stderr)
@@ -2956,6 +3490,10 @@ def main() -> int:
 
     if args.gain_calibration_duration is not None and args.gain_calibration_duration <= 0:
         print("Error: --gain-calibration-duration must be greater than zero.", file=sys.stderr)
+        return 2
+
+    if args.gain_calibration_incr is not None and args.gain_calibration_incr <= 0:
+        print("Error: --gain-calibration-incr must be greater than zero.", file=sys.stderr)
         return 2
 
     if args.gain_calibration_min_count is not None and args.gain_calibration_min_count <= 0:
@@ -2975,6 +3513,12 @@ def main() -> int:
         return 2
 
     bandwidth_hz = parse_freq(args.bandwidth)
+    try:
+        validate_rx_sdr_sample_rate(args, bandwidth_hz)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 2
+
     spacing_hz = parse_freq(args.spacing)
     channel_rate_hz = parse_freq(args.channel_rate)
     redsea_rate_hz = parse_freq(args.redsea_rate)
