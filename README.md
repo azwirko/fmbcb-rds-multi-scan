@@ -153,6 +153,7 @@ may still be required.
 | --- | --- |
 | SDRplay RSP1 | `sdrplay-rsp1` |
 | SDRplay RSP1A | `sdrplay-rsp1a` |
+| SDRplay RSPduo | `sdrplay-rspduo` |
 | RTL-SDR | `rtlsdr` |
 | ADALM-Pluto | `plutosdr` |
 | LibreSDR/ZynqSDR | `plutosdr` |
