@@ -1,5 +1,99 @@
 # fmbcb-rds-multi-scan
 
+## About This Application
+
+`fmbcb-rds-multi-scan` is a command-line FM broadcast-band scanner for
+collecting Radio Data System (RDS) information from multiple stations during a
+single scan. It is intended for Linux users who want repeatable, unattended
+band surveys and machine-readable results rather than an interactive spectrum
+display alone.
+
+### RDS on the FM broadcast band
+
+RDS is the low-rate digital data channel transmitted alongside conventional
+stereo FM broadcasts. Depending on the broadcaster, it can contain a station's
+program identification (PI) code, program service name (PS), radio text (RT),
+traffic or program-type flags, and related station metadata. RDS is not a
+separate broadcast band: it is embedded in each FM station's signal, so a
+scanner must first find and demodulate individual FM channels before it can
+decode their RDS data.
+
+The application scans a configured frequency range by capturing a portion of
+the FM band at a selected sample rate, locating station channels in that
+capture, and sending each channel through an FM/RDS decoding pipeline. Results
+are written as JSONL and can also be uploaded to RabbitEars when configured.
+Reception depends on antenna placement, signal strength, frequency spacing,
+interference, receiver bandwidth, and whether a station is transmitting useful
+RDS data.
+
+### What "multi-scan" means
+
+"Multi-scan" refers to the operation of processing several station channels
+from one wideband receiver capture in parallel. It does not mean that one
+physical SDR is magically tuned to every frequency at once: the receiver must
+support a sufficiently wide instantaneous sample bandwidth, and the host must
+have enough CPU, memory, USB or network capacity to run the resulting
+`rx_sdr`, `csdr`, and `redsea` pipelines.
+
+For example:
+
+- With `--bandwidth 2.4M`, an RTL-SDR can capture a block of the FM band and
+  the scanner can process the stations that fall inside that block. A scan
+  covering a larger range moves through additional blocks.
+- With `--bandwidth 5M` and `--duration 10`, a compatible SDR can observe a
+  wider block for ten seconds, giving the RDS decoders more time to acquire PI,
+  PS, and radio-text data from stations in that block.
+- With `--cycles 1`, the application performs one pass. More cycles can repeat
+  the configured coverage so intermittent or weak RDS data has additional
+  opportunities to decode.
+- `--rx-sdr` selects the hardware profile, while `--bandwidth` must match a
+  sample rate allowed by that profile. Profiles include RTL-SDR, SDRplay,
+  Airspy, HackRF, LimeSDR, PlutoSDR, BladeRF, UHD, and other supported SoapySDR
+  devices where the required module is installed.
+
+The exact number of simultaneous station pipelines varies with the captured
+bandwidth and the stations present. A wider capture can reduce the number of
+retunes needed for a survey, but it also increases processing demand. Start
+with a modest bandwidth and duration, verify the environment with
+`fmbcb-rds-env-check`, and increase them while watching for receiver buffer
+overruns and missed decodes.
+
+### How it differs from GUI SDR scanners
+
+Applications such as SDR-Console and SDRSharp are excellent full-featured SDR
+receivers, but their normal workflow is interactive: the user tunes one
+station or channel, views it, and uses an RDS display or plugin to decode that
+station. Even where scanning plugins are available, they commonly retune or
+check stations sequentially. A full-band survey can therefore take a long
+time, and a short dwell may not give RDS enough time to acquire reliable data.
+
+This project uses a different workflow. It is a focused batch scanner that
+combines SoapySDR hardware access with native command-line signal-processing
+tools and multiple decoder processes. It can collect several stations from
+each wideband capture, repeat the survey, calibrate receiver gain by chunk,
+and emit structured results suitable for scripts, archives, or uploads. It
+does not replace a GUI SDR for live listening, spectrum exploration, recording,
+or manual tuning, and it cannot overcome weak reception or hardware and host
+throughput limits.
+
+### What users should expect
+
+- A Debian/Ubuntu-oriented installer that installs or builds the native SDR
+  tools and SoapySDR modules, then creates an isolated Python environment.
+- Hardware-specific profiles with supported sample rates and gain behavior;
+  installed profiles can be viewed and edited at
+  `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json`.
+- Automatic gain calibration for scan chunks, including probed hardware gain
+  limits where available.
+- JSONL station output containing decoded RDS fields and a capped relative
+  signal indication (`s`, reported as dBFS in console output).
+- Optional RabbitEars station uploads and repeatable command-line operation
+  suitable for scheduled or headless systems.
+
+The project is best suited to users who already have an FM antenna and SDR,
+want to compare coverage or station metadata across a band, and are comfortable
+adjusting bandwidth, duration, gain, and hardware setup for their system.
+
 FM broadcast-band RDS multi-scanner for Debian/Ubuntu systems. The scanner uses
 external native SDR/RDS tools (`rx_sdr`, `csdr`, and `redsea`) plus a Python CLI
 installed into an isolated virtual environment.
