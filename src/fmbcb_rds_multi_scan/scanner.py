@@ -1942,6 +1942,15 @@ def format_mhz(hz: float) -> str:
     return f"{hz / 1_000_000:.3f}"
 
 
+def default_output_path(rx_sdr_name: str, bandwidth_hz: float, duration_seconds: float) -> str:
+    """Build a stable, descriptive JSONL filename for an unspecified output path."""
+    duration_label = f"{duration_seconds:g}".replace(".", "p")
+    return (
+        f"rds-scan-{rx_sdr_name}-{int(round(bandwidth_hz))}Hz-"
+        f"{duration_label}s.jsonl"
+    )
+
+
 def normalize_pi(pi) -> Optional[str]:
     """
     Normalize PI code to uppercase hex string like 0xD3C2.
@@ -3304,14 +3313,16 @@ def main() -> int:
     parser.add_argument(
         "--duration",
         type=float,
-        required=True,
-        help="Number of seconds to run rx_sdr per center-frequency chunk.",
+        default=15.0,
+        help="Number of seconds to run rx_sdr per center-frequency chunk. Default: 15.0.",
     )
 
     parser.add_argument(
         "--output",
-        required=True,
-        help="Output JSONL file to append confirmed frequency/PI records to.",
+        help=(
+            "Output JSONL file to append confirmed frequency/PI records to. "
+            "Default: rds-scan-<sdr>-<bandwidth>Hz-<duration>s.jsonl."
+        ),
     )
 
     parser.add_argument(
@@ -3365,10 +3376,10 @@ def main() -> int:
     parser.add_argument(
         "--device-release-delay",
         type=float,
-        default=2.0,
+        default=1.0,
         help=(
             "Seconds to wait after each chunk before starting the next rx_sdr process. "
-            "Useful when the SDR device needs time to release. Default: 2.0"
+            "Useful when the SDR device needs time to release. Default: 1.0"
         ),
     )
 
@@ -3400,9 +3411,10 @@ def main() -> int:
     parser.add_argument(
         "--gain-calibration-duration",
         type=float,
+        default=5.0,
         help=(
             "Seconds to scan each gain during automatic gain calibration. "
-            "Default: same as --duration."
+            "Default: 5.0."
         ),
     )
 
@@ -3513,8 +3525,8 @@ def main() -> int:
     parser.add_argument(
         "--rx-retry-delay",
         type=float,
-        default=2.0,
-        help="Seconds to wait between rx_sdr start retries. Default: 2.0",
+        default=1.0,
+        help="Seconds to wait between rx_sdr start retries. Default: 1.0",
     )
 
     parser.add_argument(
@@ -3693,6 +3705,9 @@ def main() -> int:
     args.effective_bandwidth_hz = bandwidth_hz
     args.integer_decim = integer_decim
     args.redsea_rate_hz = redsea_rate_hz
+    if args.output is None:
+        args.output = default_output_path(args.rx_sdr, requested_bandwidth_hz, args.duration)
+        print(f"Output JSONL: {args.output} (append mode)", file=sys.stderr)
     spacing_hz = parse_freq(args.spacing)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)

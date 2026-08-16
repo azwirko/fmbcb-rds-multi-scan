@@ -28,6 +28,13 @@ The installer verifies that the host is Debian/Ubuntu-family and that
 `apt-get`, `apt-cache`, and `dpkg` are available before it proceeds. This command installs the
 `v0.2.1` release, including the local SDRplay API installer.
 
+The scanner defaults to a 15-second chunk duration, a 5-second gain
+calibration dwell, a 1-second receiver retry delay, and a 1-second device
+release delay. The output path is optional; without `--output`, it creates an
+append-only JSONL file named from the resolved SDR profile, requested bandwidth,
+and duration. See [OPERATIONS.md](OPERATIONS.md) for the complete runtime
+argument reference and examples.
+
 Quick start from a fresh clone:
 
 ```bash

@@ -182,6 +182,13 @@ SoapySDR hardware before scanning.
 
 ## Example scan
 
+`--duration` defaults to 15 seconds per capture chunk. `--output` is optional;
+when omitted, the scanner creates an append-only JSONL file in the current
+working directory named from the resolved SDR profile, requested bandwidth,
+and duration, for example `rds-scan-rtlsdr-2400000Hz-15s.jsonl`. Existing files
+are preserved and new station summaries are appended.
+
+
 ```bash
 fmbcb-rds-multi-scan \
   --rx-sdr rtlsdr \
@@ -231,6 +238,9 @@ fmbcb-rds-multi-scan \
   --output ~/rds-scan.jsonl \
   --cycles 1
 ```
+
+For the complete runtime argument reference, see
+[docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Installer options
 
