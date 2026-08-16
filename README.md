@@ -213,6 +213,10 @@ values per chunk.
 For automatic calibration, a probed maximum is reduced by one because some
 drivers report an upper endpoint that the hardware does not accept; explicit
 profile overrides are used as written.
+Profiles may set `gain_calibration` to `false` and provide a
+`gain_default` when reported gain controls do not apply to the selected antenna
+path. Such profiles skip calibration; `--rx-gain` still overrides the profile
+default.
 
 Station summaries include `s`, a capped dBFS signal value calculated as
 `20 * log10(pi_decodes / (11 * chunk_duration_seconds))`. A station at or above
