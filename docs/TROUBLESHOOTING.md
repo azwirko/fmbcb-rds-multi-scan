@@ -128,13 +128,16 @@ shows both the requested and effective bandwidth.
 Airspy Mini, Airspy R2, and Airspy HF+ profiles require an exact configured
 bandwidth. The generic `--rx-sdr airspy` option probes the advertised sample
 rates to select Airspy Mini or Airspy R2. Fixed-rate profiles choose the
-highest integer-decimated Redsea rate between 171000 and 250000 Hz.
+integer-decimated Redsea rate closest to 171000 Hz, constrained between
+161000 and 181000 Hz.
 
 A request can be rejected even when it is inside a profile's nominal range if
 no valid integer-only effective rate can be produced. Similarly, some fixed
 hardware rates cannot produce a Redsea rate in the permitted range; for
 example, 256000 Hz divided by an integer is either 256000 or at most 128000.
-Use another configured hardware rate or edit the profile only when the receiver
+The shipped Airspy HF+ rates (192000, 256000, 384000, and 768000 Hz) therefore
+currently have no valid integer-only result. Use another configured hardware
+rate or edit the profile only when the receiver
 and resulting sample-rate relationship have been verified.
 
 The scanner must pass Redsea the actual rate produced by integer decimation.
