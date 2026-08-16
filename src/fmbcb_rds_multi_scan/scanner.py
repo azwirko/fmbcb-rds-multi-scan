@@ -1368,12 +1368,15 @@ def print_rx_sdr_profiles() -> None:
         gain_max = profile.get("gain_max")
         gain_range = f"{gain_min}..{gain_max}" if gain_min is not None and gain_max is not None else "probe"
         gain_incr = profile.get("gain_incr", "auto")
+        calibration = "disabled" if profile.get("gain_calibration", True) is False else "automatic"
+        default_gain = profile.get("gain_default", "driver default")
         print(
             f"  {name}\n"
             f"    driver: {profile.get('driver', '-')}\n"
             f"    hardware: {hardware}\n"
             f"    rx_sdr args: {' '.join(profile.get('device_args', []))}\n"
             f"    gain: {gain_args}<value>, range {gain_range}, step {gain_incr}\n"
+            f"    gain calibration: {calibration}, default {default_gain}\n"
             f"    bandwidth: {format_profile_bandwidth(profile, name)}"
         )
 
@@ -1470,7 +1473,9 @@ def build_rx_sdr_hardware_args_for_gain(args, gain_value: Optional[int]) -> List
         rx_args.extend(profile.get("device_args", []))
 
         if gain_value is not None:
-            gain_range = get_profile_gain_range(profile, rx_sdr_name, require_range=False)
+            gain_range = None
+            if profile.get("gain_calibration", True) is not False:
+                gain_range = get_profile_gain_range(profile, rx_sdr_name, require_range=False)
 
             if gain_range is not None:
                 gain_min, gain_max = gain_range
@@ -3638,7 +3643,34 @@ def main() -> int:
         print("Error: --gain-calibration-min-count must be greater than zero.", file=sys.stderr)
         return 2
 
-    if args.force_gain_calibration and args.skip_gain_calibration:
+    profile = RX_SDR_PROFILES.get(args.rx_sdr) if args.rx_sdr else None
+    profile_disables_calibration = profile is not None and profile.get("gain_calibration", True) is False
+
+    if profile_disables_calibration:
+        if args.force_gain_calibration:
+            print(
+                f"Error: --rx-sdr {args.rx_sdr} disables automatic gain calibration.",
+                file=sys.stderr,
+            )
+            return 2
+
+        if args.rx_gain is None and "gain_default" in profile:
+            try:
+                args.rx_gain = int(profile["gain_default"])
+            except (TypeError, ValueError):
+                print(
+                    f"Error: --rx-sdr {args.rx_sdr} has invalid gain_default={profile['gain_default']!r}.",
+                    file=sys.stderr,
+                )
+                return 2
+
+        args.skip_gain_calibration = True
+        print(
+            f"Gain calibration disabled by --rx-sdr {args.rx_sdr} profile; "
+            f"using {('driver default' if args.rx_gain is None else f'gain {args.rx_gain}')}.",
+            file=sys.stderr,
+        )
+    elif args.force_gain_calibration and args.skip_gain_calibration:
         print("Error: --force-gain-calibration cannot be used with --skip-gain-calibration.", file=sys.stderr)
         return 2
 

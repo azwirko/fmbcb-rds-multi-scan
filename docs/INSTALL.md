@@ -140,7 +140,9 @@ selected profile driver and uses the reported gain range when available. If a
 driver does not report a usable range, add `gain_min` and `gain_max` overrides
 to the profile JSON. `gain_incr` may be an integer or `"auto"`; `"auto"` picks
 a step that tests no more than 9 gains per chunk while still including the
-maximum gain.
+maximum gain. A profile can set `gain_calibration` to `false` and define
+`gain_default` when reported gain controls do not apply to the selected antenna
+path. The default gain is used without calibration, and `--rx-gain` overrides it.
 
 For automatic calibration, the scanner uses one less than the maximum gain
 reported by `SoapySDRUtil`, because some drivers report an upper endpoint that

@@ -189,3 +189,6 @@ driver still does not report a gain range, add `gain_min` and `gain_max` to the
 profile in `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json`.
 During automatic calibration, the scanner reduces a probed maximum gain by one
 because some drivers report an endpoint that the hardware does not accept.
+Profiles with `gain_calibration: false` skip calibration and use their
+`gain_default`; this is used by the Airspy HF+ profile because its VHF antenna
+path does not expose the variable gain controls reported for the HF path.
