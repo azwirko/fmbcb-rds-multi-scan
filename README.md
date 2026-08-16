@@ -93,9 +93,10 @@ throughput limits.
 
 For range-based profiles, the requested integer bandwidth is resolved downward
 to an integer multiple of 171 kHz so the integer FIR decimator produces the
-fixed 171 kHz Redsea input. Airspy and Airspy HF+ use exact profile bandwidth
-values and select the closest integer-decimated Redsea rate between 166666
-and 250000 Hz. The startup output shows the requested and effective rates.
+fixed 171 kHz Redsea input. Airspy Mini and Airspy R2 use exact profile bandwidth values. The generic
+`--rx-sdr airspy` alias probes the advertised sample rates to select the
+matching model. Fixed-rate profiles choose the highest integer-decimated Redsea
+rate between 171000 and 250000 Hz. The startup output shows the requested and effective rates.
 
 The project is best suited to users who already have an FM antenna and SDR,
 want to compare coverage or station metadata across a band, and are comfortable
@@ -118,7 +119,8 @@ package. The installer:
 - creates `/opt/fmbcb-rds-multi-scan/venv`;
 - installs the Python package into that venv from a curated source snapshot;
 - writes `/opt/fmbcb-rds-multi-scan/install-info.env` with install/source metadata;
-- seeds `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json` if it does not already exist;
+- merges `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json` by default, with
+  overwrite and separate-new-file profile update modes;
 - creates `/usr/local/bin/fmbcb-rds-multi-scan` and `/usr/local/bin/fmbcb-rds-env-check` wrappers;
 - runs an environment checker at the end.
 
@@ -160,12 +162,13 @@ may still be required.
 | --- | --- |
 | SDRplay RSP1 | `sdrplay-rsp1` |
 | SDRplay RSP1A | `sdrplay-rsp1a` |
-| SDRplay RSPduo | `sdrplay-rspduo` |
+| SDRplay RSPdx | `sdrplay-rspdx` |
 | RTL-SDR | `rtlsdr` |
 | ADALM-Pluto | `plutosdr` |
 | LibreSDR/ZynqSDR | `plutosdr` |
 | LimeSDR Mini | `lime` |
-| Airspy Mini | `airspy` |
+| Airspy Mini | `airspy-mini` |
+| Airspy R2 | `airspy-r2` |
 | Airspy HF+ | `airspyhf` |
 | Pluto+ SDR | `plutosdr` |
 | HackRF One | `hackrf` |
@@ -298,8 +301,8 @@ make package
 - `install-info.env` records the installed app version, source commit, install
   paths, native dependency repos/refs, SDRplay installer settings, and native
   checkout commits when present.
-- `--rx-sdr` profiles validate `--bandwidth` against their allowed sample-rate
-  list. SDRplay profiles are model-specific, such as `sdrplay-rsp1`, `sdrplay-rsp1a`, `sdrplay-rsp1b`, `sdrplay-rsp2`,
+- `--rx-sdr` profiles validate `--bandwidth` against their allowed bandwidth
+  range or exact-value list. SDRplay profiles are model-specific, such as `sdrplay-rsp1`, `sdrplay-rsp1a`, `sdrplay-rsp1b`, `sdrplay-rsp2`,
   `sdrplay-rspduo`, and `sdrplay-rspdx`; `sdrplay` and `auto` use
   `SoapySDRUtil --probe` to resolve connected hardware when possible. Installed
   profiles live in `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json`, with

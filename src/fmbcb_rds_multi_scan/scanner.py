@@ -45,7 +45,7 @@ RABBITEARS_STATION_UPLOAD_CACHE_LOCK = threading.Lock()
 MAX_GAIN_VALUES_PER_CHUNK = 9
 MAX_PI_DECODES_PER_SECOND = 11
 INTEGER_REDSEA_RATE_HZ = 171000
-MIN_INTEGER_REDSEA_RATE_HZ = 166666
+MIN_INTEGER_REDSEA_RATE_HZ = 171000
 MAX_INTEGER_REDSEA_RATE_HZ = 250000
 
 
@@ -1041,6 +1041,31 @@ def extract_soapy_hardware(probe_output: str) -> Optional[str]:
     return None
 
 
+def extract_soapy_sample_rates(probe_output: str) -> List[int]:
+    """Extract sample rates advertised by a SoapySDR probe response."""
+    unit_multipliers = {
+        "ghz": 1_000_000_000,
+        "gsps": 1_000_000_000,
+        "mhz": 1_000_000,
+        "msps": 1_000_000,
+        "khz": 1_000,
+        "ksps": 1_000,
+        "hz": 1,
+        "sps": 1,
+    }
+    rate_pattern = re.compile(
+        r"(?<![\w.])(\d+(?:\.\d+)?)\s*(GHz|GSps|MHz|MSps|kHz|kSps|Hz|Sps)\b",
+        re.IGNORECASE,
+    )
+    rates: Set[int] = set()
+    for line in probe_output.splitlines():
+        if "sample rate" not in line.lower():
+            continue
+        for value, unit in rate_pattern.findall(line):
+            rates.add(int(round(float(value) * unit_multipliers[unit.lower()])))
+    return sorted(rates)
+
+
 def gain_names_for_profile(profile: Dict) -> List[str]:
     names: List[str] = []
     gain_name = profile.get("gain_name")
@@ -1210,16 +1235,51 @@ def candidate_profiles_for_rx_sdr(rx_sdr_name: str) -> List[str]:
     return []
 
 
-def resolve_rx_sdr_profile_name(rx_sdr_name: str) -> str:
+def resolve_rx_sdr_profile_name(rx_sdr_name: str, requested_bandwidth_hz: Optional[float] = None) -> str:
     requested = rx_sdr_name.strip().lower()
 
-    if requested in RX_SDR_PROFILES:
+    if requested in RX_SDR_PROFILES and requested not in RX_SDR_PROFILE_ALIASES:
         return requested
 
     candidates = candidate_profiles_for_rx_sdr(requested)
     if not candidates:
         supported = ", ".join(get_rx_sdr_choices())
         raise ValueError(f"Unsupported --rx-sdr '{rx_sdr_name}'. Supported values: {supported}")
+
+    if requested == "airspy":
+        if requested_bandwidth_hz is None:
+            raise ValueError("--rx-sdr airspy requires --bandwidth to identify Airspy Mini or Airspy R2.")
+        try:
+            code, output = run_soapy_probe("airspy")
+        except (OSError, subprocess.TimeoutExpired, ValueError) as e:
+            raise ValueError(f"Could not probe --rx-sdr airspy: {e}") from e
+        if code != 0:
+            first_line = output.strip().splitlines()[0] if output.strip() else f"exit {code}"
+            raise ValueError(f"Could not probe --rx-sdr airspy: {first_line}")
+
+        probed_rates = set(extract_soapy_sample_rates(output))
+        requested_rate = parse_integer_bandwidth(requested_bandwidth_hz, "airspy")
+        matching_profiles = []
+        for name in candidates:
+            spec = get_profile_bandwidth_spec(RX_SDR_PROFILES[name], name)
+            if spec.get("kind") == "values" and requested_rate in spec["values"] and requested_rate in probed_rates:
+                matching_profiles.append(name)
+
+        if len(matching_profiles) == 1:
+            profile_name = matching_profiles[0]
+            print(
+                f"Detected --rx-sdr {profile_name} from Airspy probe sample rates "
+                f"({', '.join(str(rate) for rate in sorted(probed_rates))}).",
+                file=sys.stderr,
+            )
+            return profile_name
+
+        probed_text = ", ".join(str(rate) for rate in sorted(probed_rates)) or "none"
+        raise ValueError(
+            f"Could not resolve --rx-sdr airspy for requested bandwidth {requested_rate} Hz. "
+            f"Probe sample rates: {probed_text}. Use --rx-sdr airspy-mini or airspy-r2 "
+            "with one of its exact supported bandwidths."
+        )
 
     drivers = sorted({str(RX_SDR_PROFILES[name].get("driver", name)) for name in candidates})
     matches: List[Tuple[str, str]] = []
@@ -1548,7 +1608,7 @@ def resolve_rx_sdr_bandwidth(args, requested_bandwidth_hz: float) -> Tuple[int, 
             f"Redsea rate between {MIN_INTEGER_REDSEA_RATE_HZ} and {MAX_INTEGER_REDSEA_RATE_HZ} Hz."
         )
 
-    _, decim, rate = min(candidates, key=lambda item: (item[0], item[1]))
+    _, decim, rate = max(candidates, key=lambda item: (item[2], -item[1]))
     return requested, decim, int(round(rate))
 
 def get_gain_values_for_profile(args) -> List[int]:
@@ -3548,7 +3608,8 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        args.rx_sdr = resolve_rx_sdr_profile_name(args.rx_sdr)
+        requested_bandwidth_hz = parse_freq(args.bandwidth)
+        args.rx_sdr = resolve_rx_sdr_profile_name(args.rx_sdr, requested_bandwidth_hz)
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 2
@@ -3589,7 +3650,6 @@ def main() -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 2
 
-    requested_bandwidth_hz = parse_freq(args.bandwidth)
     try:
         bandwidth_hz, integer_decim, redsea_rate_hz = resolve_rx_sdr_bandwidth(
             args, requested_bandwidth_hz

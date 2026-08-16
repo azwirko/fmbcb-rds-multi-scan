@@ -114,11 +114,25 @@ whether full APT, build-prerequisite APT, or native builds are skipped.
 ## Receiver profile config
 
 The installer seeds `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json` from
-`config/rx_sdr_profiles.json` when the file is missing. On reinstall, it preserves
-existing profile values and adds newly shipped profile names that are absent. Use
-`--config-dir PATH` or `FMB_CONFIG_DIR` to install the editable config somewhere
-else. The installed wrapper exports `FMB_RX_SDR_PROFILES` to point the scanner at
-the configured file.
+`config/rx_sdr_profiles.json` when the file is missing. The default
+`--profiles-merge` mode preserves existing profile values and adds newly shipped
+profile names that are absent. Other update modes are available:
+
+```bash
+# Preserve edits and add new profiles (default).
+sudo ./install.sh --profiles-merge
+
+# Back up the active file and replace it with repository defaults.
+sudo ./install.sh --profiles-overwrite
+
+# Write repository defaults separately without changing the active file.
+sudo ./install.sh --profiles-new /tmp/rx_sdr_profiles.new.json
+```
+
+Overwrite mode creates a timestamped `.backup.*` file beside the active config.
+Use `--config-dir PATH` or `FMB_CONFIG_DIR` to install the editable config
+somewhere else. The installed wrapper exports `FMB_RX_SDR_PROFILES` to point the
+scanner at the configured file.
 
 Profile gain ranges are intentionally not hard-coded in the shipped defaults.
 When gain calibration needs a range, the scanner probes `SoapySDRUtil` for the

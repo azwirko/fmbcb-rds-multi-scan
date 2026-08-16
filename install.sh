@@ -19,6 +19,8 @@ SKIP_CSDR_BUILD="${FMB_SKIP_CSDR_BUILD:-0}"
 SKIP_REDSEA_BUILD="${FMB_SKIP_REDSEA_BUILD:-0}"
 INSTALL_RTL_BLACKLIST="${FMB_INSTALL_RTL_BLACKLIST:-0}"
 DRY_RUN="${FMB_DRY_RUN:-0}"
+PROFILE_UPDATE_MODE="merge"
+PROFILE_NEW_PATH=""
 
 RX_TOOLS_REPO="${FMB_RX_TOOLS_REPO:-https://github.com/rxseger/rx_tools}"
 RX_TOOLS_REF="${FMB_RX_TOOLS_REF:-}"
@@ -57,6 +59,9 @@ Options:
   --prefix PATH              Install app under PATH [${DEFAULT_PREFIX}]
   --bin-dir PATH             Install command wrappers under PATH [${DEFAULT_BIN_DIR}]
   --config-dir PATH          Install editable app config under PATH [${DEFAULT_CONFIG_DIR}]
+  --profiles-merge            Preserve existing profiles and add new defaults [default]
+  --profiles-overwrite        Back up and replace the installed profile file
+  --profiles-new PATH         Write defaults to a separate absolute PATH
   --build-root PATH          Native dependency source/build root [${DEFAULT_BUILD_ROOT}]
   --force-build              Rebuild native tools even when commands already exist
   --skip-apt                 Do not install the full runtime APT package group
@@ -157,6 +162,9 @@ while [[ $# -gt 0 ]]; do
     --prefix) require_option_value "$1" "${2-}"; PREFIX="$2"; shift 2 ;;
     --bin-dir) require_option_value "$1" "${2-}"; BIN_DIR="$2"; shift 2 ;;
     --config-dir) require_option_value "$1" "${2-}"; CONFIG_DIR="$2"; shift 2 ;;
+    --profiles-merge) PROFILE_UPDATE_MODE="merge"; PROFILE_NEW_PATH=""; shift ;;
+    --profiles-overwrite) PROFILE_UPDATE_MODE="overwrite"; PROFILE_NEW_PATH=""; shift ;;
+    --profiles-new) require_option_value "$1" "${2-}"; PROFILE_UPDATE_MODE="new"; PROFILE_NEW_PATH="$2"; shift 2 ;;
     --build-root) require_option_value "$1" "${2-}"; BUILD_ROOT="$2"; shift 2 ;;
     --force-build) FORCE_BUILD=1; shift ;;
     --skip-apt) SKIP_APT=1; shift ;;
@@ -178,6 +186,9 @@ done
 
 check_debian_compliance
 validate_install_paths
+if [[ "$PROFILE_UPDATE_MODE" == "new" && "$PROFILE_NEW_PATH" != /* ]]; then
+  die "--profiles-new PATH must be an absolute path: ${PROFILE_NEW_PATH}"
+fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SDRPLAY_API_INSTALLER="${SDRPLAY_API_INSTALLER_OVERRIDE:-${REPO_ROOT}/third-party/SDRplay_RSP_API-Linux-3.15.2.run}"
@@ -362,6 +373,7 @@ Paths:
   build root:     ${BUILD_ROOT}
   config dir:     ${CONFIG_DIR}
   profile config: ${RX_SDR_PROFILE_CONFIG_FILE}
+  profile update mode: ${PROFILE_UPDATE_MODE}${PROFILE_NEW_PATH:+ (${PROFILE_NEW_PATH})}
   venv:           ${VENV_DIR}
   app source:     ${APP_SRC_DIR}
   install info:   ${INSTALL_INFO_FILE}
@@ -408,7 +420,7 @@ EOF
 
 Python app:
   action: create/update virtual environment and install curated source snapshot
-  config: seed ${RX_SDR_PROFILE_CONFIG_FILE} if missing
+  config: ${PROFILE_UPDATE_MODE} profile update for ${RX_SDR_PROFILE_CONFIG_FILE}
   wrappers:
     - ${BIN_DIR}/${APP_NAME}
     - ${BIN_DIR}/fmbcb-rds-env-check
@@ -767,8 +779,28 @@ EOF
 }
 
 install_rx_sdr_profile_config() {
-  log "Installing editable rx_sdr profile config"
+  log "Installing editable rx_sdr profile config (${PROFILE_UPDATE_MODE})"
+
+  if [[ "$PROFILE_UPDATE_MODE" == "new" ]]; then
+    mkdir -p "$(dirname "$PROFILE_NEW_PATH")"
+    install -D -m 0644 "$REPO_ROOT/config/rx_sdr_profiles.json" "$PROFILE_NEW_PATH"
+    log "Wrote new default rx_sdr profiles to ${PROFILE_NEW_PATH}"
+    return
+  fi
+
   mkdir -p "$CONFIG_DIR"
+
+  if [[ "$PROFILE_UPDATE_MODE" == "overwrite" ]]; then
+    if [[ -f "$RX_SDR_PROFILE_CONFIG_FILE" ]]; then
+      local backup_path
+      backup_path="${RX_SDR_PROFILE_CONFIG_FILE}.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+      cp -a "$RX_SDR_PROFILE_CONFIG_FILE" "$backup_path"
+      log "Backed up existing rx_sdr profiles to ${backup_path}"
+    fi
+    install -m 0644 "$REPO_ROOT/config/rx_sdr_profiles.json" "$RX_SDR_PROFILE_CONFIG_FILE"
+    log "Replaced rx_sdr profiles with repository defaults"
+    return
+  fi
 
   if [[ -f "$RX_SDR_PROFILE_CONFIG_FILE" ]]; then
     warn "Keeping existing rx_sdr profile values and adding any new default profiles: ${RX_SDR_PROFILE_CONFIG_FILE}"
@@ -799,6 +831,10 @@ for name, profile in default_profiles.items():
     if "bandwidth" not in existing_profile and "bandwidth" in profile:
         existing_profile["bandwidth"] = profile["bandwidth"]
     existing_profile.pop("sample_rate", None)
+
+# The generic Airspy profile is now a probe-based alias to concrete models.
+if "airspy" not in default_profiles:
+    existing_profiles.pop("airspy", None)
 
 existing_aliases = existing.setdefault("aliases", {})
 for name, targets in defaults.get("aliases", {}).items():
