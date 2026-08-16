@@ -57,11 +57,12 @@ sudo ./install.sh
 ```
 
 During SDRplay API installation, the vendor `.run` installer may prompt for EULA
-acceptance. Press `Y` only if you accept SDRplay's license terms. If the download
-URL changes, override it:
+acceptance. Press `Y` only if you accept SDRplay's license terms. The
+installer expects `third-party/SDRplay_RSP_API-Linux-3.15.2.run`. To use a
+different local copy, provide an absolute path:
 
 ```bash
-sudo FMB_SDRPLAY_API_URL=https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.15.2.run ./install.sh
+sudo FMB_SDRPLAY_API_INSTALLER=/path/to/SDRplay_RSP_API-Linux-3.15.2.run ./install.sh
 ```
 
 Then check the service and SoapySDR state:

@@ -8,9 +8,10 @@ and normal build tools. The primary target is Ubuntu 24.04 LTS. It installs into
 `/usr/local/bin`.
 
 A normal Ubuntu 24.04 install needs network access for APT, Python package
-downloads, SDRplay API download when needed, and native source checkouts unless
-all required packages and native tools are already present and the relevant
-`--skip-*` options are used. Expect the first full install to take several
+downloads, and native source checkouts unless all required packages and native
+tools are already present and the relevant `--skip-*` options are used. The
+SDRplay API installer is bundled in `third-party/` and is not downloaded from
+the SDRplay website. Expect the first full install to take several
 minutes because SDRplay support, `rx_sdr`, `csdr`, and `redsea` may be installed
 or built. When a source build is required, the installer checks the compile
 prerequisite packages and installs missing ones through APT. Subsequent installs
@@ -211,10 +212,10 @@ checks SDRplay support unless `--skip-sdrplay` is used.
 The SDRplay flow is:
 
 1. Check whether `sdrplay` is active.
-2. If the service is not installed, download
-   `https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.15.2.run` into the
-   installer build root.
-3. Mark the downloaded `.run` file executable and run it as root. The vendor
+2. If the service is not installed, use the bundled
+   `third-party/SDRplay_RSP_API-Linux-3.15.2.run` installer. A local absolute
+   path may be supplied with `FMB_SDRPLAY_API_INSTALLER`.
+3. Mark the `.run` file executable and run it as root. The vendor
    installer may prompt for EULA acceptance; press `Y` only if you accept
    SDRplay's license terms.
 4. Enable and start `sdrplay`.
@@ -240,8 +241,8 @@ sudo ./install.sh --skip-soapy-sdrplay-build
 # Do not auto-install compile prerequisites for source builds.
 sudo ./install.sh --skip-build-prereq-apt
 
-# Override source locations or pin SoapySDRPlay3.
-sudo FMB_SDRPLAY_API_URL=https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.15.2.run \
+# Use a different local SDRplay API installer and pin SoapySDRPlay3.
+sudo FMB_SDRPLAY_API_INSTALLER=/path/to/SDRplay_RSP_API-Linux-3.15.2.run \
   FMB_SOAPY_SDRPLAY_REF=<commit-or-tag> \
   ./install.sh
 ```

@@ -187,8 +187,9 @@ fmbcb-rds-multi-scan \
   --show-command
 ```
 
-For SDRplay, the installer checks the `sdrplay` service, downloads and runs
-SDRplay API 3.x when needed, builds SoapySDRPlay3 from source, and prints
+For SDRplay, the installer checks the `sdrplay` service, runs the bundled
+SDRplay API 3.x installer from `third-party/` when needed, builds
+SoapySDRPlay3 from source, and prints
 `SoapySDRUtil` module/device output at the end. The SDRplay API installer may
 prompt for EULA acceptance. Then list or probe the modeled receiver profiles:
 

@@ -26,7 +26,6 @@ CSDR_REPO="${FMB_CSDR_REPO:-https://github.com/ha7ilm/csdr.git}"
 CSDR_REF="${FMB_CSDR_REF:-}"
 REDSEA_REPO="${FMB_REDSEA_REPO:-https://github.com/windytan/redsea.git}"
 REDSEA_REF="${FMB_REDSEA_REF:-}"
-SDRPLAY_API_URL="${FMB_SDRPLAY_API_URL:-https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.15.2.run}"
 SDRPLAY_API_INSTALLER_OVERRIDE="${FMB_SDRPLAY_API_INSTALLER:-}"
 SDRPLAY_API_SERVICE="${FMB_SDRPLAY_API_SERVICE:-sdrplay}"
 SOAPY_SDRPLAY_REPO="${FMB_SOAPY_SDRPLAY_REPO:-https://github.com/pothosware/SoapySDRPlay3.git}"
@@ -79,7 +78,7 @@ Environment overrides:
   FMB_RX_TOOLS_REPO, FMB_RX_TOOLS_REF
   FMB_CSDR_REPO, FMB_CSDR_REF
   FMB_REDSEA_REPO, FMB_REDSEA_REF
-  FMB_SDRPLAY_API_URL, FMB_SDRPLAY_API_INSTALLER, FMB_SDRPLAY_API_SERVICE
+  FMB_SDRPLAY_API_INSTALLER, FMB_SDRPLAY_API_SERVICE
   FMB_SOAPY_SDRPLAY_REPO, FMB_SOAPY_SDRPLAY_REF
   FMB_SOAPY_AIRSPYHF_REPO, FMB_SOAPY_AIRSPYHF_REF
   FMB_SOAPY_PLUTOSDR_REPO, FMB_SOAPY_PLUTOSDR_REF
@@ -180,12 +179,11 @@ done
 check_debian_compliance
 validate_install_paths
 
-SDRPLAY_API_INSTALLER="${SDRPLAY_API_INSTALLER_OVERRIDE:-${BUILD_ROOT}/downloads/SDRplay_RSP_API-Linux-3.15.2.run}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SDRPLAY_API_INSTALLER="${SDRPLAY_API_INSTALLER_OVERRIDE:-${REPO_ROOT}/third-party/SDRplay_RSP_API-Linux-3.15.2.run}"
 if [[ "$SDRPLAY_API_INSTALLER" != /* ]]; then
   die "FMB_SDRPLAY_API_INSTALLER must be an absolute path: ${SDRPLAY_API_INSTALLER}"
 fi
-
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${PREFIX}/venv"
 APP_SRC_DIR="${PREFIX}/src"
 INSTALL_INFO_FILE="${PREFIX}/install-info.env"
@@ -322,9 +320,8 @@ print_sdrplay_plan() {
   if [[ "$SKIP_SDRPLAY" == "1" || "$SKIP_SDRPLAY_API" == "1" ]]; then
     printf '    action: skip API installer and service management\n'
   else
-    printf '    action: check service, download/run API installer if missing, enable/start service\n'
+    printf '    action: check local API installer, run if service is missing, enable/start service\n'
     printf '    service: %s\n' "$SDRPLAY_API_SERVICE"
-    printf '    installer URL: %s\n' "$SDRPLAY_API_URL"
     printf '    installer path: %s\n' "$SDRPLAY_API_INSTALLER"
   fi
 
@@ -569,8 +566,6 @@ soapy_sdrplay_module_loaded() {
 install_sdrplay_api() {
   [[ "$SKIP_SDRPLAY" == "1" || "$SKIP_SDRPLAY_API" == "1" ]] && { warn "Skipping SDRplay API install/service check"; return; }
 
-  install_missing_apt_packages "SDRplay API download" ca-certificates curl
-  require_cmd curl
   require_cmd systemctl
 
   if sdrplay_service_active; then
@@ -583,9 +578,11 @@ install_sdrplay_api() {
     systemctl enable "$SDRPLAY_API_SERVICE"
     systemctl start "$SDRPLAY_API_SERVICE"
   else
-    log "Downloading SDRplay API installer"
-    mkdir -p "$(dirname "$SDRPLAY_API_INSTALLER")"
-    curl -fL --retry 3 -o "$SDRPLAY_API_INSTALLER" "$SDRPLAY_API_URL"
+    if [[ ! -f "$SDRPLAY_API_INSTALLER" ]]; then
+      die "Bundled SDRplay API installer not found: ${SDRPLAY_API_INSTALLER}. Place SDRplay_RSP_API-Linux-3.15.2.run in third-party/ or set FMB_SDRPLAY_API_INSTALLER to a local absolute path."
+    fi
+
+    log "Using local SDRplay API installer: ${SDRPLAY_API_INSTALLER}"
     chmod 0755 "$SDRPLAY_API_INSTALLER"
 
     warn "The SDRplay API installer may prompt for EULA acceptance. Press Y only if you accept SDRplay's license terms."
@@ -890,7 +887,6 @@ PYAPPVERSION
   write_env_kv "REDSEA_REPO" "$REDSEA_REPO"
   write_env_kv "REDSEA_REF" "$REDSEA_REF"
   write_env_kv "REDSEA_COMMIT" "$(git_commit_for_dir "${BUILD_ROOT}/redsea")"
-  write_env_kv "SDRPLAY_API_URL" "$SDRPLAY_API_URL"
   write_env_kv "SDRPLAY_API_INSTALLER" "$SDRPLAY_API_INSTALLER"
   write_env_kv "SDRPLAY_API_SERVICE" "$SDRPLAY_API_SERVICE"
   write_env_kv "SDRPLAY_API_SERVICE_ACTIVE" "$(systemctl is-active "$SDRPLAY_API_SERVICE" 2>/dev/null || true)"
