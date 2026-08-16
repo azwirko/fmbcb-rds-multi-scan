@@ -80,7 +80,8 @@ throughput limits.
 
 - A Debian/Ubuntu-oriented installer that installs or builds the native SDR
   tools and SoapySDR modules, then creates an isolated Python environment.
-- Hardware-specific profiles with supported sample rates and gain behavior;
+- Hardware-specific profiles with supported bandwidth ranges or exact bandwidth
+  values and gain behavior;
   installed profiles can be viewed and edited at
   `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json`.
 - Automatic gain calibration for scan chunks, including probed hardware gain
@@ -89,6 +90,12 @@ throughput limits.
   signal indication (`s`, reported as dBFS in console output).
 - Optional RabbitEars station uploads and repeatable command-line operation
   suitable for scheduled or headless systems.
+
+For range-based profiles, the requested integer bandwidth is resolved downward
+to an integer multiple of 171 kHz so the integer FIR decimator produces the
+fixed 171 kHz Redsea input. Airspy and Airspy HF+ use exact profile bandwidth
+values and select the closest integer-decimated Redsea rate between 166666
+and 250000 Hz. The startup output shows the requested and effective rates.
 
 The project is best suited to users who already have an FM antenna and SDR,
 want to compare coverage or station metadata across a band, and are comfortable

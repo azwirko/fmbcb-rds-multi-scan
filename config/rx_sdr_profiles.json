@@ -10,24 +10,16 @@
         "-d",
         "driver=sdrplay"
       ],
-      "sample_rate": [
-        "1m",
-        "2m",
-        "3m",
-        "4m",
-        "5m",
-        "6m",
-        "7m",
-        "8m",
-        "9m",
-        "10m"
-      ],
       "gain_name": "RFGR",
       "gain_args": [
         "-g",
         "RFGR="
       ],
-      "gain_incr": "auto"
+      "gain_incr": "auto",
+      "bandwidth": {
+        "min": 1000000,
+        "max": 10000000
+      }
     },
     "sdrplay-rsp1a": {
       "driver": "sdrplay",
@@ -38,24 +30,16 @@
         "-d",
         "driver=sdrplay"
       ],
-      "sample_rate": [
-        "1m",
-        "2m",
-        "3m",
-        "4m",
-        "5m",
-        "6m",
-        "7m",
-        "8m",
-        "9m",
-        "10m"
-      ],
       "gain_name": "RFGR",
       "gain_args": [
         "-g",
         "RFGR="
       ],
-      "gain_incr": "auto"
+      "gain_incr": "auto",
+      "bandwidth": {
+        "min": 1000000,
+        "max": 10000000
+      }
     },
     "sdrplay-rspdx": {
       "driver": "sdrplay",
@@ -67,24 +51,16 @@
         "-d",
         "driver=sdrplay"
       ],
-      "sample_rate": [
-        "1m",
-        "2m",
-        "3m",
-        "4m",
-        "5m",
-        "6m",
-        "7m",
-        "8m",
-        "9m",
-        "10m"
-      ],
       "gain_name": "RFGR",
       "gain_args": [
         "-g",
         "RFGR="
       ],
-      "gain_incr": "auto"
+      "gain_incr": "auto",
+      "bandwidth": {
+        "min": 1000000,
+        "max": 10000000
+      }
     },
     "airspy": {
       "driver": "airspy",
@@ -92,17 +68,19 @@
         "-d",
         "driver=airspy"
       ],
-      "sample_rate": [
-        "2.5m",
-        "3m",
-        "6m",
-        "10m"
-      ],
       "gain_args": [
         "-g",
         ""
       ],
-      "gain_incr": "auto"
+      "gain_incr": "auto",
+      "bandwidth": {
+        "values": [
+          2500000,
+          3000000,
+          6000000,
+          10000000
+        ]
+      }
     },
     "bladerf": {
       "driver": "bladerf",
@@ -110,28 +88,15 @@
         "-d",
         "driver=bladerf"
       ],
-      "sample_rate": [
-        "1m",
-        "1.92m",
-        "2m",
-        "3m",
-        "3.84m",
-        "4m",
-        "5m",
-        "6m",
-        "7m",
-        "7.68m",
-        "8m",
-        "9m",
-        "10m",
-        "15.36m",
-        "20m"
-      ],
       "gain_args": [
         "-g",
         ""
       ],
-      "gain_incr": "auto"
+      "gain_incr": "auto",
+      "bandwidth": {
+        "min": 1000000,
+        "max": 20000000
+      }
     },
     "hackrf": {
       "driver": "hackrf",
@@ -139,24 +104,15 @@
         "-d",
         "driver=hackrf"
       ],
-      "sample_rate": [
-        "1m",
-        "2m",
-        "3m",
-        "4m",
-        "5m",
-        "6m",
-        "7m",
-        "8m",
-        "9m",
-        "10m",
-        "20m"
-      ],
       "gain_args": [
         "-g",
         ""
       ],
-      "gain_incr": "auto"
+      "gain_incr": "auto",
+      "bandwidth": {
+        "min": 1000000,
+        "max": 20000000
+      }
     },
     "lime": {
       "driver": "lime",
@@ -164,24 +120,15 @@
         "-d",
         "driver=lime"
       ],
-      "sample_rate": [
-        "1m",
-        "2m",
-        "3m",
-        "4m",
-        "5m",
-        "6m",
-        "7m",
-        "8m",
-        "9m",
-        "10m",
-        "20m"
-      ],
       "gain_args": [
         "-g",
         ""
       ],
-      "gain_incr": "auto"
+      "gain_incr": "auto",
+      "bandwidth": {
+        "min": 1000000,
+        "max": 20000000
+      }
     },
     "miri": {
       "driver": "miri",
@@ -189,24 +136,15 @@
         "-d",
         "driver=miri"
       ],
-      "sample_rate": [
-        "1.3m",
-        "2m",
-        "2.048m",
-        "3m",
-        "4m",
-        "5m",
-        "6m",
-        "7m",
-        "8m",
-        "9m",
-        "10m"
-      ],
       "gain_args": [
         "-g",
         ""
       ],
-      "gain_incr": "auto"
+      "gain_incr": "auto",
+      "bandwidth": {
+        "min": 1300000,
+        "max": 10000000
+      }
     },
     "rtlsdr": {
       "driver": "rtlsdr",
@@ -214,21 +152,15 @@
         "-d",
         "driver=rtlsdr"
       ],
-      "sample_rate": [
-        "0.9m",
-        "1m",
-        "2m",
-        "2.048m",
-        "2.4m",
-        "2.56m",
-        "3m",
-        "3.2m"
-      ],
       "gain_args": [
         "-g",
         ""
       ],
-      "gain_incr": "auto"
+      "gain_incr": "auto",
+      "bandwidth": {
+        "min": 900000,
+        "max": 3200000
+      }
     },
     "uhd": {
       "driver": "uhd",
@@ -236,24 +168,15 @@
         "-d",
         "driver=uhd"
       ],
-      "sample_rate": [
-        "1m",
-        "2m",
-        "3m",
-        "4m",
-        "5m",
-        "6m",
-        "7m",
-        "8m",
-        "9m",
-        "10m",
-        "20m"
-      ],
       "gain_args": [
         "-g",
         ""
       ],
-      "gain_incr": "auto"
+      "gain_incr": "auto",
+      "bandwidth": {
+        "min": 1000000,
+        "max": 20000000
+      }
     },
     "airspyhf": {
       "driver": "airspyhf",
@@ -261,17 +184,19 @@
         "-d",
         "driver=airspyhf"
       ],
-      "sample_rate": [
-        "0.768m",
-        "0.384m",
-        "0.256m",
-        "0.192m"
-      ],
       "gain_args": [
         "-g",
         ""
       ],
-      "gain_incr": "auto"
+      "gain_incr": "auto",
+      "bandwidth": {
+        "values": [
+          768000,
+          384000,
+          256000,
+          192000
+        ]
+      }
     },
     "plutosdr": {
       "driver": "plutosdr",
@@ -279,24 +204,15 @@
         "-d",
         "driver=plutosdr"
       ],
-      "sample_rate": [
-        "1m",
-        "2m",
-        "3m",
-        "4m",
-        "5m",
-        "6m",
-        "7m",
-        "8m",
-        "9m",
-        "10m",
-        "20m"
-      ],
       "gain_args": [
         "-g",
         ""
       ],
-      "gain_incr": "auto"
+      "gain_incr": "auto",
+      "bandwidth": {
+        "min": 1000000,
+        "max": 20000000
+      }
     },
     "fcdpp": {
       "driver": "fcdpp",
@@ -304,32 +220,21 @@
         "-d",
         "driver=fcdpp"
       ],
-      "sample_rate": [
-        "0.192m"
-      ],
       "gain_args": [
         "-g",
         ""
       ],
-      "gain_incr": "auto"
+      "gain_incr": "auto",
+      "bandwidth": {
+        "min": 192000,
+        "max": 192000
+      }
     },
     "sdrplay-rsp1b": {
       "driver": "sdrplay",
       "device_args": [
         "-d",
         "driver=sdrplay"
-      ],
-      "sample_rate": [
-        "1m",
-        "2m",
-        "3m",
-        "4m",
-        "5m",
-        "6m",
-        "7m",
-        "8m",
-        "9m",
-        "10m"
       ],
       "gain_name": "RFGR",
       "gain_args": [
@@ -339,25 +244,17 @@
       "gain_incr": "auto",
       "hardware": [
         "RSP1B"
-      ]
+      ],
+      "bandwidth": {
+        "min": 1000000,
+        "max": 10000000
+      }
     },
     "sdrplay-rsp2": {
       "driver": "sdrplay",
       "device_args": [
         "-d",
         "driver=sdrplay"
-      ],
-      "sample_rate": [
-        "1m",
-        "2m",
-        "3m",
-        "4m",
-        "5m",
-        "6m",
-        "7m",
-        "8m",
-        "9m",
-        "10m"
       ],
       "gain_name": "RFGR",
       "gain_args": [
@@ -367,25 +264,17 @@
       "gain_incr": "auto",
       "hardware": [
         "RSP2"
-      ]
+      ],
+      "bandwidth": {
+        "min": 1000000,
+        "max": 10000000
+      }
     },
     "sdrplay-rspduo": {
       "driver": "sdrplay",
       "device_args": [
         "-d",
         "driver=sdrplay"
-      ],
-      "sample_rate": [
-        "1m",
-        "2m",
-        "3m",
-        "4m",
-        "5m",
-        "6m",
-        "7m",
-        "8m",
-        "9m",
-        "10m"
       ],
       "gain_name": "RFGR",
       "gain_args": [
@@ -396,7 +285,11 @@
       "hardware": [
         "RSPduo",
         "RSPduo-R2"
-      ]
+      ],
+      "bandwidth": {
+        "min": 1000000,
+        "max": 10000000
+      }
     }
   },
   "aliases": {

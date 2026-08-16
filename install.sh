@@ -793,6 +793,15 @@ default_profiles = defaults.get("profiles", {})
 for name, profile in default_profiles.items():
     if name not in existing_profiles:
         existing_profiles[name] = profile
+        continue
+
+    # Migrate profiles from the former sample_rate-list schema while preserving
+    # all other user edits. New defaults are authoritative only for the new
+    # bandwidth schema, which is required by the installed scanner.
+    existing_profile = existing_profiles[name]
+    if "bandwidth" not in existing_profile and "bandwidth" in profile:
+        existing_profile["bandwidth"] = profile["bandwidth"]
+    existing_profile.pop("sample_rate", None)
 
 existing_aliases = existing.setdefault("aliases", {})
 for name, targets in defaults.get("aliases", {}).items():

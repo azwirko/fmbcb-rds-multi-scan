@@ -44,6 +44,9 @@ RABBITEARS_STATION_UPLOAD_CACHE: Dict[str, float] = {}
 RABBITEARS_STATION_UPLOAD_CACHE_LOCK = threading.Lock()
 MAX_GAIN_VALUES_PER_CHUNK = 9
 MAX_PI_DECODES_PER_SECOND = 11
+INTEGER_REDSEA_RATE_HZ = 171000
+MIN_INTEGER_REDSEA_RATE_HZ = 166666
+MAX_INTEGER_REDSEA_RATE_HZ = 250000
 
 
 def calculate_signal_dbfs(decode_count, duration_seconds: float) -> float:
@@ -1269,6 +1272,30 @@ def resolve_rx_sdr_profile_name(rx_sdr_name: str) -> str:
     )
 
 
+def format_profile_bandwidth(profile: Dict, rx_sdr_name: str) -> str:
+    spec = profile.get("bandwidth")
+    if not isinstance(spec, dict):
+        return "invalid"
+
+    values = spec.get("values")
+    if isinstance(values, list) and values:
+        try:
+            parsed_values = [parse_integer_bandwidth(value, rx_sdr_name) for value in values]
+        except ValueError:
+            return "invalid"
+        return "exact " + ", ".join(format_mhz(float(value)) for value in parsed_values)
+
+    if "min" in spec and "max" in spec:
+        try:
+            minimum = parse_integer_bandwidth(spec["min"], rx_sdr_name)
+            maximum = parse_integer_bandwidth(spec["max"], rx_sdr_name)
+        except ValueError:
+            return "invalid"
+        return f"range {format_mhz(float(minimum))}..{format_mhz(float(maximum))}"
+
+    return "invalid"
+
+
 def print_rx_sdr_profiles() -> None:
     loaded_from = ", ".join(RX_SDR_PROFILE_CONFIG_LOADED_FROM) or "no profile config loaded"
     print(f"rx_sdr profile config: {loaded_from}")
@@ -1276,7 +1303,6 @@ def print_rx_sdr_profiles() -> None:
     for name in sorted(RX_SDR_PROFILES.keys()):
         profile = RX_SDR_PROFILES[name]
         hardware = ", ".join(profile.get("hardware", [])) or "-"
-        sample_rates = ", ".join(profile.get("sample_rate", [])) or "-"
         gain_args = " ".join(profile.get("gain_args", [])) or "-"
         gain_min = profile.get("gain_min")
         gain_max = profile.get("gain_max")
@@ -1288,7 +1314,7 @@ def print_rx_sdr_profiles() -> None:
             f"    hardware: {hardware}\n"
             f"    rx_sdr args: {' '.join(profile.get('device_args', []))}\n"
             f"    gain: {gain_args}<value>, range {gain_range}, step {gain_incr}\n"
-            f"    sample rates: {sample_rates}"
+            f"    bandwidth: {format_profile_bandwidth(profile, name)}"
         )
 
     if RX_SDR_PROFILE_ALIASES:
@@ -1412,56 +1438,118 @@ def build_rx_sdr_hardware_args_for_gain(args, gain_value: Optional[int]) -> List
     return rx_args
 
 
-def get_sample_rates_for_profile(profile: Dict, rx_sdr_name: str) -> List[int]:
-    """Return the allowed sample rates for an rx_sdr profile as integer Hz."""
-    sample_rates = profile.get("sample_rate")
-
-    if sample_rates is None:
-        return []
-
-    if not isinstance(sample_rates, list) or not all(isinstance(item, str) for item in sample_rates):
+def parse_integer_bandwidth(value, rx_sdr_name: str) -> int:
+    try:
+        parsed = parse_freq(value) if isinstance(value, str) else float(value)
+    except (TypeError, ValueError) as e:
         raise ValueError(
-            f"Invalid sample_rate profile for --rx-sdr {rx_sdr_name}; "
-            "expected a list of strings."
+            f"Invalid bandwidth configuration for --rx-sdr {rx_sdr_name}: {value!r}"
+        ) from e
+
+    if not math.isfinite(parsed) or parsed <= 0 or not parsed.is_integer():
+        raise ValueError(
+            f"Bandwidth for --rx-sdr {rx_sdr_name} must be a positive integer number of Hz: {value!r}"
         )
 
-    parsed_rates: List[int] = []
-    for sample_rate in sample_rates:
-        try:
-            parsed_rates.append(int(round(parse_freq(sample_rate))))
-        except ValueError as e:
-            raise ValueError(
-                f"Invalid sample_rate value for --rx-sdr {rx_sdr_name}: {sample_rate}"
-            ) from e
-
-    return parsed_rates
+    return int(parsed)
 
 
-def validate_rx_sdr_sample_rate(args, bandwidth_hz: float) -> None:
-    """Validate --bandwidth against the selected rx_sdr profile sample rates."""
+def get_profile_bandwidth_spec(profile: Dict, rx_sdr_name: str) -> Dict:
+    spec = profile.get("bandwidth")
+    if not isinstance(spec, dict):
+        raise ValueError(
+            f"Invalid bandwidth profile for --rx-sdr {rx_sdr_name}; "
+            "expected {min, max} or {values}."
+        )
+
+    values = spec.get("values")
+    has_values = isinstance(values, list) and bool(values)
+    has_range = "min" in spec and "max" in spec
+    if has_values == has_range:
+        raise ValueError(
+            f"Invalid bandwidth profile for --rx-sdr {rx_sdr_name}; "
+            "define either non-empty values or min and max."
+        )
+
+    if has_values:
+        parsed_values = sorted({parse_integer_bandwidth(value, rx_sdr_name) for value in values})
+        return {"kind": "values", "values": parsed_values}
+
+    minimum = parse_integer_bandwidth(spec["min"], rx_sdr_name)
+    maximum = parse_integer_bandwidth(spec["max"], rx_sdr_name)
+    if minimum > maximum:
+        raise ValueError(
+            f"Invalid bandwidth range for --rx-sdr {rx_sdr_name}: {minimum} > {maximum}"
+        )
+    return {"kind": "range", "min": minimum, "max": maximum}
+
+
+def resolve_rx_sdr_bandwidth(args, requested_bandwidth_hz: float) -> Tuple[int, int, int]:
+    """Resolve requested bandwidth to SDR rate, integer decimation, and Redsea rate."""
     rx_sdr_name = args.rx_sdr.strip().lower() if getattr(args, "rx_sdr", None) else ""
-
     if not rx_sdr_name:
-        return
+        requested = parse_integer_bandwidth(requested_bandwidth_hz, "default")
+        decim = max(1, requested // INTEGER_REDSEA_RATE_HZ)
+        return requested, decim, int(round(requested / decim))
 
     profile = RX_SDR_PROFILES.get(rx_sdr_name)
-
     if profile is None:
         supported = ", ".join(sorted(RX_SDR_PROFILES.keys()))
         raise ValueError(f"Unsupported --rx-sdr '{args.rx_sdr}'. Supported values: {supported}")
 
-    allowed_rates = get_sample_rates_for_profile(profile, rx_sdr_name)
-    if not allowed_rates:
-        return
+    requested = parse_integer_bandwidth(requested_bandwidth_hz, rx_sdr_name)
+    spec = get_profile_bandwidth_spec(profile, rx_sdr_name)
 
-    requested_rate = int(round(bandwidth_hz))
-    if requested_rate not in allowed_rates:
-        allowed_values = ", ".join(profile["sample_rate"])
+    if spec["kind"] == "range":
+        if requested < spec["min"] or requested > spec["max"]:
+            raise ValueError(
+                f"--bandwidth {args.bandwidth} is outside the supported range for {rx_sdr_name}: "
+                f"{spec['min']}..{spec['max']} Hz"
+            )
+
+        decim = requested // INTEGER_REDSEA_RATE_HZ
+        effective = decim * INTEGER_REDSEA_RATE_HZ
+        if decim < 1 or effective < spec["min"]:
+            minimum_decim = math.ceil(spec["min"] / INTEGER_REDSEA_RATE_HZ)
+            minimum_effective = minimum_decim * INTEGER_REDSEA_RATE_HZ
+            raise ValueError(
+                f"--bandwidth {args.bandwidth} cannot produce a valid integer-only rate for {rx_sdr_name}. "
+                f"The nearest effective bandwidth not exceeding the request is {effective} Hz; "
+                f"minimum usable effective bandwidth is {minimum_effective} Hz."
+            )
+
+        if effective > spec["max"]:
+            raise ValueError(
+                f"Resolved effective bandwidth {effective} Hz exceeds the maximum for {rx_sdr_name}: "
+                f"{spec['max']} Hz."
+            )
+
+        return effective, decim, INTEGER_REDSEA_RATE_HZ
+
+    values = spec["values"]
+    if requested not in values:
+        allowed = ", ".join(str(value) for value in values)
         raise ValueError(
             f"--bandwidth {args.bandwidth} is not supported for --rx-sdr {rx_sdr_name}. "
-            f"Allowed exact sample rates: {allowed_values}"
+            f"Allowed exact bandwidths in Hz: {allowed}"
         )
 
+    candidates = []
+    lower_decim = max(1, math.floor(requested / MAX_INTEGER_REDSEA_RATE_HZ) - 1)
+    upper_decim = math.ceil(requested / MIN_INTEGER_REDSEA_RATE_HZ) + 1
+    for decim in range(lower_decim, upper_decim + 1):
+        rate = requested / decim
+        if MIN_INTEGER_REDSEA_RATE_HZ <= rate <= MAX_INTEGER_REDSEA_RATE_HZ:
+            candidates.append((abs(rate - INTEGER_REDSEA_RATE_HZ), decim, rate))
+
+    if not candidates:
+        raise ValueError(
+            f"No integer decimation for {rx_sdr_name} bandwidth {requested} Hz produces a "
+            f"Redsea rate between {MIN_INTEGER_REDSEA_RATE_HZ} and {MAX_INTEGER_REDSEA_RATE_HZ} Hz."
+        )
+
+    _, decim, rate = min(candidates, key=lambda item: (item[0], item[1]))
+    return requested, decim, int(round(rate))
 
 def get_gain_values_for_profile(args) -> List[int]:
     """Return all gain values to try for the selected --rx-sdr profile."""
@@ -2311,8 +2399,8 @@ def build_branch_pipeline(
     center_hz: float,
     target_hz: float,
     bandwidth_hz: float,
-    channel_rate_hz: float,
-    redsea_rate_hz: float,
+    integer_decim: int,
+    redsea_rate_hz: int,
 ) -> List[List[str]]:
     offset_hz = target_hz - center_hz
 
@@ -2325,16 +2413,12 @@ def build_branch_pipeline(
     # shift = -(target - center) / sample_rate
     shift = -offset_hz / bandwidth_hz
 
-    decim = max(1, int(round(bandwidth_hz / channel_rate_hz)))
-    post_decim_rate = bandwidth_hz / decim
-    fractional_decim = post_decim_rate / redsea_rate_hz
     transition_width = 50000.0 / bandwidth_hz
 
     return [
         ["csdr", "shift_addition_cc", f"{shift:.12f}"],
-        ["csdr", "fir_decimate_cc", str(decim), f"{transition_width:.12f}", "HAMMING"],
+        ["csdr", "fir_decimate_cc", str(integer_decim), f"{transition_width:.12f}", "HAMMING"],
         ["csdr", "fmdemod_quadri_cf"],
-        ["csdr", "fractional_decimator_ff", f"{fractional_decim:.12f}"],
         ["csdr", "convert_f_i16"],
         ["redsea", "-r", f"{int(round(redsea_rate_hz))}"],
     ]
@@ -2606,8 +2690,8 @@ def run_scan_chunk(
     center_hz: float,
     bandwidth_hz: float,
     targets: List[float],
-    channel_rate_hz: float,
-    redsea_rate_hz: float,
+    integer_decim: int,
+    redsea_rate_hz: int,
     pi_call_lookup: Dict[str, List[Dict[str, str]]],
     cycle: int,
     chunk_index: int,
@@ -2679,7 +2763,7 @@ def run_scan_chunk(
                     center_hz=center_hz,
                     target_hz=target_hz,
                     bandwidth_hz=bandwidth_hz,
-                    channel_rate_hz=channel_rate_hz,
+                    integer_decim=integer_decim,
                     redsea_rate_hz=redsea_rate_hz,
                 )
 
@@ -2784,8 +2868,8 @@ def calibrate_chunk_gain(
     args,
     chunk: dict,
     bandwidth_hz: float,
-    channel_rate_hz: float,
-    redsea_rate_hz: float,
+    integer_decim: int,
+    redsea_rate_hz: int,
     pi_call_lookup: Dict[str, List[Dict[str, str]]],
     chunk_index: int,
 ) -> int:
@@ -2830,7 +2914,7 @@ def calibrate_chunk_gain(
             center_hz=chunk["center_hz"],
             bandwidth_hz=bandwidth_hz,
             targets=chunk["targets"],
-            channel_rate_hz=channel_rate_hz,
+            integer_decim=integer_decim,
             redsea_rate_hz=redsea_rate_hz,
             pi_call_lookup=pi_call_lookup,
             cycle=0,
@@ -2908,8 +2992,8 @@ def calibrate_all_chunk_gains(
     args,
     chunks: List[dict],
     bandwidth_hz: float,
-    channel_rate_hz: float,
-    redsea_rate_hz: float,
+    integer_decim: int,
+    redsea_rate_hz: int,
     pi_call_lookup: Dict[str, List[Dict[str, str]]],
 ) -> Dict[int, int]:
     """Calibrate and return chunk_index -> best gain."""
@@ -2922,7 +3006,7 @@ def calibrate_all_chunk_gains(
             args=args,
             chunk=chunk,
             bandwidth_hz=bandwidth_hz,
-            channel_rate_hz=channel_rate_hz,
+            integer_decim=integer_decim,
             redsea_rate_hz=redsea_rate_hz,
             pi_call_lookup=pi_call_lookup,
             chunk_index=chunk_index,
@@ -2943,7 +3027,7 @@ def calibrate_all_chunk_gains(
 # Gain calibration cache
 # ---------------------------------------------------------------------------
 
-GAIN_CALIBRATION_CACHE_VERSION = 4
+GAIN_CALIBRATION_CACHE_VERSION = 5
 GAIN_CALIBRATION_SCORE_METHOD = "unique_station_count_then_raw_decode_tiebreak_early_stop_v1"
 
 
@@ -2957,16 +3041,19 @@ def gain_calibration_cache_key(
     """
     Build a stable cache key for saved per-chunk gain calibration.
 
-    The primary requested dimensions are SDR vendor and bandwidth. The band
-    limits and spacing are included as safety dimensions because they determine
-    the actual chunk boundaries.
+    The effective SDR bandwidth, integer decimation, and Redsea rate are
+    included because they determine the actual DSP pipeline. Band limits and
+    spacing are included as safety dimensions because they determine the chunk
+    boundaries.
     """
     rx_sdr_name = args.rx_sdr.strip().lower() if getattr(args, "rx_sdr", None) else "default"
 
     return "|".join(
         [
             f"rx_sdr={rx_sdr_name}",
-            f"bandwidth_hz={int(round(bandwidth_hz))}",
+            f"effective_bandwidth_hz={int(round(bandwidth_hz))}",
+            f"integer_decim={int(getattr(args, 'integer_decim', 0))}",
+            f"redsea_rate_hz={int(getattr(args, 'redsea_rate_hz', 0))}",
             f"band_start_hz={int(round(band_start_hz))}",
             f"band_end_hz={int(round(band_end_hz))}",
             f"spacing_hz={int(round(spacing_hz))}",
@@ -3109,7 +3196,9 @@ def write_cached_chunk_gains(
 
     cache.setdefault("entries", {})[key] = {
         "rx_sdr": args.rx_sdr.strip().lower() if args.rx_sdr else "default",
-        "bandwidth_hz": int(round(bandwidth_hz)),
+        "effective_bandwidth_hz": int(round(bandwidth_hz)),
+        "integer_decim": int(getattr(args, "integer_decim", 0)),
+        "redsea_rate_hz": int(getattr(args, "redsea_rate_hz", 0)),
         "band_start_hz": int(round(band_start_hz)),
         "band_end_hz": int(round(band_end_hz)),
         "spacing_hz": int(round(spacing_hz)),
@@ -3144,7 +3233,7 @@ def main() -> int:
     parser.add_argument(
         "--bandwidth",
         required=True,
-        help="rx_sdr sample rate / capture bandwidth, e.g. 5M. Must match the selected --rx-sdr profile sample_rate list.",
+        help="Requested integer rx_sdr capture bandwidth, e.g. 5M. Range profiles resolve downward to an integer multiple of 171k; fixed profiles require an exact value.",
     )
 
     parser.add_argument(
@@ -3189,12 +3278,6 @@ def main() -> int:
             "Optional SDR center frequency, e.g. 100M. "
             "If omitted, the full FM band is scanned in bandwidth-sized chunks."
         ),
-    )
-
-    parser.add_argument(
-        "--channel-rate",
-        default="384k",
-        help="Intermediate single-channel complex rate after decimation. Default: 384k",
     )
 
     parser.add_argument(
@@ -3339,12 +3422,6 @@ def main() -> int:
         "--pi-url",
         default=PI_CODES_URL,
         help=f"NRSC PI-code database URL. Default: {PI_CODES_URL}",
-    )
-
-    parser.add_argument(
-        "--redsea-rate",
-        default="171k",
-        help="MPX sample rate sent to redsea. Default: 171k",
     )
 
     parser.add_argument(
@@ -3512,16 +3589,19 @@ def main() -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 2
 
-    bandwidth_hz = parse_freq(args.bandwidth)
+    requested_bandwidth_hz = parse_freq(args.bandwidth)
     try:
-        validate_rx_sdr_sample_rate(args, bandwidth_hz)
+        bandwidth_hz, integer_decim, redsea_rate_hz = resolve_rx_sdr_bandwidth(
+            args, requested_bandwidth_hz
+        )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 2
 
+    args.effective_bandwidth_hz = bandwidth_hz
+    args.integer_decim = integer_decim
+    args.redsea_rate_hz = redsea_rate_hz
     spacing_hz = parse_freq(args.spacing)
-    channel_rate_hz = parse_freq(args.channel_rate)
-    redsea_rate_hz = parse_freq(args.redsea_rate)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
 
@@ -3577,7 +3657,7 @@ def main() -> int:
             center_hz=center_hz,
             bandwidth_hz=bandwidth_hz,
             targets=targets,
-            channel_rate_hz=channel_rate_hz,
+            integer_decim=integer_decim,
             redsea_rate_hz=redsea_rate_hz,
             pi_call_lookup=pi_call_lookup,
             cycle=1,
@@ -3640,6 +3720,12 @@ def main() -> int:
         f"Band: {format_mhz(band_start_hz)}–{format_mhz(band_end_hz)} MHz",
         file=sys.stderr,
     )
+    print(
+        f"Requested bandwidth: {requested_bandwidth_hz / 1e6:.6f} MHz; "
+        f"effective bandwidth: {bandwidth_hz / 1e6:.6f} MHz; "
+        f"integer decimation: {integer_decim}; Redsea rate: {redsea_rate_hz} Hz",
+        file=sys.stderr,
+    )
     print(f"Bandwidth per chunk: {bandwidth_hz / 1e6:.3f} MHz", file=sys.stderr)
     print(f"Duration per chunk: {args.duration:.1f} seconds", file=sys.stderr)
     print(f"Chunks per full pass: {len(chunks)}", file=sys.stderr)
@@ -3683,7 +3769,7 @@ def main() -> int:
                     args=args,
                     chunks=chunks,
                     bandwidth_hz=bandwidth_hz,
-                    channel_rate_hz=channel_rate_hz,
+                    integer_decim=integer_decim,
                     redsea_rate_hz=redsea_rate_hz,
                     pi_call_lookup=pi_call_lookup,
                 )
@@ -3730,7 +3816,7 @@ def main() -> int:
                     center_hz=chunk["center_hz"],
                     bandwidth_hz=bandwidth_hz,
                     targets=chunk["targets"],
-                    channel_rate_hz=channel_rate_hz,
+                    integer_decim=integer_decim,
                     redsea_rate_hz=redsea_rate_hz,
                     pi_call_lookup=pi_call_lookup,
                     cycle=cycle,

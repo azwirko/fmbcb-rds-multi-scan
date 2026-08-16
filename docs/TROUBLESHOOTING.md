@@ -116,6 +116,29 @@ If a source module fails to build, rerun without
 `--skip-build-prereq-apt`; use `--skip-soapy-extra-build` only when the extra
 source modules are intentionally not required.
 
+## Bandwidth and Redsea rate resolution
+
+The scanner no longer uses fractional resampling and no longer accepts a
+`--redsea-rate` option. It uses `csdr fir_decimate_cc` with an integer factor.
+For range-based profiles, the requested bandwidth is resolved downward to an
+integer multiple of 171 kHz and Redsea receives 171000 Hz. The startup output
+shows both the requested and effective bandwidth.
+
+Airspy and Airspy HF+ profiles require an exact configured bandwidth. The
+scanner selects the integer decimation producing the Redsea rate closest to
+171000 Hz, subject to the supported range of 166666 through 250000 Hz.
+
+A request can be rejected even when it is inside a profile's nominal range if
+no valid integer-only effective rate can be produced. Similarly, some fixed
+hardware rates cannot produce a Redsea rate in the permitted range; for
+example, 256000 Hz divided by an integer is either 256000 or at most 128000.
+Use another configured hardware rate or edit the profile only when the receiver
+and resulting sample-rate relationship have been verified.
+
+The scanner must pass Redsea the actual rate produced by integer decimation.
+Do not work around a rejection by manually adding `--redsea-rate`; that option
+has been removed because a mismatched Redsea rate can corrupt RDS symbol timing.
+
 ## Understanding station signal values
 
 Each station row in the JSONL output and RabbitEars payload includes `s`. This
