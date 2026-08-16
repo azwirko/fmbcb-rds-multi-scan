@@ -129,7 +129,7 @@ Airspy Mini, Airspy R2, and Airspy HF+ profiles require an exact configured
 bandwidth. The generic `--rx-sdr airspy` option probes the advertised sample
 rates to select Airspy Mini or Airspy R2. Fixed-rate profiles choose the
 integer-decimated Redsea rate at or above 171000 Hz, constrained
-not to exceed 185000 Hz.
+not to exceed 192000 Hz.
 
 A request can be rejected even when it is inside a profile's nominal range if
 no valid integer-only effective rate can be produced. Similarly, some fixed
