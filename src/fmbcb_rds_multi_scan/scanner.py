@@ -45,8 +45,8 @@ RABBITEARS_STATION_UPLOAD_CACHE_LOCK = threading.Lock()
 MAX_GAIN_VALUES_PER_CHUNK = 9
 MAX_PI_DECODES_PER_SECOND = 11
 INTEGER_REDSEA_RATE_HZ = 171000
-MIN_INTEGER_REDSEA_RATE_HZ = 171000
-MAX_INTEGER_REDSEA_RATE_HZ = 250000
+MIN_INTEGER_REDSEA_RATE_HZ = 161000
+MAX_INTEGER_REDSEA_RATE_HZ = 181000
 
 
 def calculate_signal_dbfs(decode_count, duration_seconds: float) -> float:
@@ -1608,7 +1608,7 @@ def resolve_rx_sdr_bandwidth(args, requested_bandwidth_hz: float) -> Tuple[int, 
             f"Redsea rate between {MIN_INTEGER_REDSEA_RATE_HZ} and {MAX_INTEGER_REDSEA_RATE_HZ} Hz."
         )
 
-    _, decim, rate = max(candidates, key=lambda item: (item[2], -item[1]))
+    _, decim, rate = min(candidates, key=lambda item: (item[0], item[1]))
     return requested, decim, int(round(rate))
 
 def get_gain_values_for_profile(args) -> List[int]:
