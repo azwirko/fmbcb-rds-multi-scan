@@ -119,7 +119,8 @@ package. The installer:
 - creates `/opt/fmbcb-rds-multi-scan/venv`;
 - installs the Python package into that venv from a curated source snapshot;
 - writes `/opt/fmbcb-rds-multi-scan/install-info.env` with install/source metadata;
-- seeds `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json` if it does not already exist;
+- merges `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json` by default, with
+  overwrite and separate-new-file profile update modes;
 - creates `/usr/local/bin/fmbcb-rds-multi-scan` and `/usr/local/bin/fmbcb-rds-env-check` wrappers;
 - runs an environment checker at the end.
 
