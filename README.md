@@ -96,7 +96,7 @@ to an integer multiple of 171 kHz so the integer FIR decimator produces the
 fixed 171 kHz Redsea input. Airspy Mini and Airspy R2 use exact profile bandwidth values. The generic
 `--rx-sdr airspy` alias probes the advertised sample rates to select the
 matching model. Fixed-rate profiles choose the integer-decimated Redsea rate
-closest to 171000 Hz, constrained between 161000 and 181000 Hz. The startup
+at or above 171000 Hz, constrained not to exceed 185000 Hz. The startup
 output shows the requested and effective rates.
 
 The project is best suited to users who already have an FM antenna and SDR,
