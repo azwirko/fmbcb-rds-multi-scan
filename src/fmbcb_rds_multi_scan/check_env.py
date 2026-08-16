@@ -75,7 +75,7 @@ def soapy_find_check(driver: str, required: bool = False) -> Check:
 def lsmod_check(modules: Iterable[str]) -> Check:
     code, out, err = run_cmd(["lsmod"], timeout=5.0)
     if code != 0:
-        return Check("conflicting RTL kernel modules", True, f"lsmod unavailable: {err}", required=False)
+        return Check("conflicting SDR kernel modules", True, f"lsmod unavailable: {err}", required=False)
     loaded = []
     for line in out.splitlines()[1:]:
         name = line.split()[0] if line.split() else ""
@@ -83,12 +83,12 @@ def lsmod_check(modules: Iterable[str]) -> Check:
             loaded.append(name)
     if loaded:
         return Check(
-            "conflicting RTL kernel modules",
+            "conflicting SDR kernel modules",
             False,
-            "loaded: " + ", ".join(sorted(loaded)) + " (may claim RTL-SDR dongles)",
+            "loaded: " + ", ".join(sorted(loaded)) + " (may claim SDR hardware)",
             required=False,
         )
-    return Check("conflicting RTL kernel modules", True, "none detected", required=False)
+    return Check("conflicting SDR kernel modules", True, "none detected", required=False)
 
 
 def usb_check() -> Check:
@@ -134,7 +134,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         command_check("lsusb", required=False),
         python_module_check("requests", required=True),
         usb_check(),
-        lsmod_check(["dvb_usb_rtl28xxu", "rtl2832", "rtl2830"]),
+        lsmod_check([
+            "dvb_usb_rtl28xxu",
+            "rtl2832",
+            "rtl2830",
+            "sdr_msi3101",
+            "msi001",
+            "msi2500",
+        ]),
     ]
 
     if not args.skip_soapy_probe:

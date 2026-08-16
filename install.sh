@@ -74,7 +74,9 @@ Options:
   --skip-soapy-sdrplay-build Do not build SoapySDRPlay3 from source
   --skip-soapy-extra-build  Do not build AirspyHF, PlutoSDR, or FCDPP modules
   --skip-build-prereq-apt   Do not auto-install source-build prerequisites
-  --install-rtl-blacklist    Install a modprobe blacklist for DVB RTL modules
+  --install-rtl-blacklist    Also blacklist DVB RTL modules for RTL-SDR access
+  (MSI/Mirics modules used by MiriSDR and SDRplay-compatible devices are
+   blacklisted automatically.)
   --dry-run, --check         Validate options and print the install plan
   -h, --help                 Show this help
 
@@ -765,6 +767,37 @@ build_redsea() {
   ldconfig || true
 }
 
+install_miri_sdrplay_blacklist() {
+  local blacklist_file="/etc/modprobe.d/blacklist-fmbcb-rds-sdr.conf"
+  log "Installing MiriSDR/SDRplay kernel module blacklist"
+  cat > "$blacklist_file" <<'EOF'
+# Installed by fmbcb-rds-multi-scan installer.
+# Prevent the Linux MSI/Mirics drivers from claiming MiriSDR and
+# SDRplay-compatible receivers before SoapySDR or the SDRplay API can open them.
+blacklist sdr_msi3101
+blacklist msi001
+blacklist msi2500
+EOF
+
+  if have_cmd modprobe; then
+    local module
+    for module in sdr_msi3101 msi001 msi2500; do
+      if have_cmd lsmod && lsmod | awk '{print $1}' | grep -Fxq "$module"; then
+        if modprobe -r "$module" 2>/dev/null; then
+          log "Unloaded conflicting kernel module: ${module}"
+        else
+          warn "Could not unload ${module}; reboot after installation before using MiriSDR or SDRplay."
+        fi
+      fi
+    done
+  fi
+
+  if have_cmd depmod; then
+    depmod -a || warn "depmod failed; reboot before using MiriSDR or SDRplay."
+  fi
+  warn "Reboot or unplug/replug MiriSDR/SDRplay devices after blacklisting modules."
+}
+
 install_rtl_blacklist() {
   [[ "$INSTALL_RTL_BLACKLIST" == "1" ]] || return 0
   log "Installing RTL-SDR DVB module blacklist"
@@ -983,6 +1016,7 @@ main() {
   build_rx_sdr
   build_csdr
   build_redsea
+  install_miri_sdrplay_blacklist
   install_rtl_blacklist
   install_python_app
   install_rx_sdr_profile_config

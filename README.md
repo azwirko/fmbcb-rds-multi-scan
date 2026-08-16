@@ -123,6 +123,8 @@ package. The installer:
 - merges `/etc/fmbcb-rds-multi-scan/rx_sdr_profiles.json` by default, with
   overwrite and separate-new-file profile update modes;
 - creates `/usr/local/bin/fmbcb-rds-multi-scan` and `/usr/local/bin/fmbcb-rds-env-check` wrappers;
+- installs a modprobe blacklist for the MSI/Mirics kernel modules that can
+  claim MiriSDR and SDRplay-compatible devices;
 - runs an environment checker at the end.
 
 ## Quick install

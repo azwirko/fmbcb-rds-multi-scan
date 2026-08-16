@@ -46,6 +46,22 @@ sudo ./install.sh --install-rtl-blacklist
 
 Then reboot or unplug/replug the dongle.
 
+## MiriSDR or SDRplay is not found
+
+Linux may load the MSI/Mirics kernel modules before SoapySDR or the SDRplay API
+can claim the receiver. The installer automatically writes
+`/etc/modprobe.d/blacklist-fmbcb-rds-sdr.conf` containing:
+
+```text
+blacklist sdr_msi3101
+blacklist msi001
+blacklist msi2500
+```
+
+It attempts to unload modules that are already active. Reboot, or unplug and
+replug the receiver, before retrying `SoapySDRUtil --find` or the application.
+The environment checker reports any of these modules that remain loaded.
+
 ## SDRplay is not found
 
 The installer checks the SDRplay API service and SoapySDRPlay3 module after the

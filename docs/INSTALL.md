@@ -312,9 +312,11 @@ sudo usermod -aG plugdev fmbscan
 
 For RTL-SDR devices, install udev rules from your distro package or hardware
 vendor when needed. If Linux DVB modules claim the dongle, rerun the installer
-with `--install-rtl-blacklist`, then reboot or unplug/replug the device. For
-SDRplay, confirm `sdrplay` is active before running this scanner
-service.
+with `--install-rtl-blacklist`, then reboot or unplug/replug the device. The
+installer always blacklists `sdr_msi3101`, `msi001`, and `msi2500`, which can
+claim MiriSDR and SDRplay-compatible devices; reboot or unplug/replug those
+receivers after installation. For SDRplay, confirm `sdrplay` is active before
+running this scanner service.
 
 3. Install and edit the unit file:
 
