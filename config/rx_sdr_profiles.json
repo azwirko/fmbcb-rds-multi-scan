@@ -62,26 +62,6 @@
         "max": 10000000
       }
     },
-    "airspy": {
-      "driver": "airspy",
-      "device_args": [
-        "-d",
-        "driver=airspy"
-      ],
-      "gain_args": [
-        "-g",
-        ""
-      ],
-      "gain_incr": "auto",
-      "bandwidth": {
-        "values": [
-          2500000,
-          3000000,
-          6000000,
-          10000000
-        ]
-      }
-    },
     "bladerf": {
       "driver": "bladerf",
       "device_args": [
@@ -290,6 +270,42 @@
         "min": 1000000,
         "max": 10000000
       }
+    },
+    "airspy-mini": {
+      "driver": "airspy",
+      "device_args": [
+        "-d",
+        "driver=airspy"
+      ],
+      "gain_args": [
+        "-g",
+        ""
+      ],
+      "gain_incr": "auto",
+      "bandwidth": {
+        "values": [
+          3000000,
+          6000000
+        ]
+      }
+    },
+    "airspy-r2": {
+      "driver": "airspy",
+      "device_args": [
+        "-d",
+        "driver=airspy"
+      ],
+      "gain_args": [
+        "-g",
+        ""
+      ],
+      "gain_incr": "auto",
+      "bandwidth": {
+        "values": [
+          2500000,
+          10000000
+        ]
+      }
     }
   },
   "aliases": {
@@ -300,6 +316,10 @@
       "sdrplay-rsp1b",
       "sdrplay-rsp2",
       "sdrplay-rspduo"
+    ],
+    "airspy": [
+      "airspy-mini",
+      "airspy-r2"
     ]
   }
 }

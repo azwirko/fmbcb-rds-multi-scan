@@ -800,6 +800,10 @@ for name, profile in default_profiles.items():
         existing_profile["bandwidth"] = profile["bandwidth"]
     existing_profile.pop("sample_rate", None)
 
+# The generic Airspy profile is now a probe-based alias to concrete models.
+if "airspy" not in default_profiles:
+    existing_profiles.pop("airspy", None)
+
 existing_aliases = existing.setdefault("aliases", {})
 for name, targets in defaults.get("aliases", {}).items():
     if name not in existing_aliases:
