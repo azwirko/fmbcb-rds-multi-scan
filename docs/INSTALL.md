@@ -21,12 +21,12 @@ source checkouts are reused unless `--force-build` is supplied.
 One-line bootstrap from a fresh Debian/Ubuntu shell:
 
 ```bash
-sudo apt-get update && sudo apt-get install -y git ca-certificates && bash -c 'set -Eeuo pipefail; temp_dir=$(mktemp -d); trap "rm -rf \"$temp_dir\"" EXIT; git clone --branch v0.2.1 --depth 1 https://github.com/azwirko/fmbcb-rds-multi-scan.git "$temp_dir/fmbcb-rds-multi-scan"; cd "$temp_dir/fmbcb-rds-multi-scan"; sudo ./install.sh'
+sudo apt-get update && sudo apt-get install -y git ca-certificates && bash -c 'set -Eeuo pipefail; temp_dir=$(mktemp -d); trap "rm -rf \"$temp_dir\"" EXIT; git clone --branch v0.2.2 --depth 1 https://github.com/azwirko/fmbcb-rds-multi-scan.git "$temp_dir/fmbcb-rds-multi-scan"; cd "$temp_dir/fmbcb-rds-multi-scan"; sudo ./install.sh'
 ```
 
 The installer verifies that the host is Debian/Ubuntu-family and that
 `apt-get`, `apt-cache`, and `dpkg` are available before it proceeds. This command installs the
-`v0.2.1` release, including the local SDRplay API installer.
+`v0.2.2` release, including the local SDRplay API installer.
 
 The scanner defaults to a 15-second chunk duration, a 5-second gain
 calibration dwell, a 1-second receiver retry delay, and a 1-second device
